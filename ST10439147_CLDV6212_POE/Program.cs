@@ -1,3 +1,7 @@
+
+using ST10439147_CLDV6212_POE.Models;
+using ST10439147_CLDV6212_POE.Services;
+
 namespace ST10439147_CLDV6212_POE
 {
     public class Program
@@ -8,6 +12,7 @@ namespace ST10439147_CLDV6212_POE
 
             // Add services to the container.
             builder.Services.AddControllersWithViews();
+            builder.Services.AddScoped<AzureService>();
 
             var app = builder.Build();
 
