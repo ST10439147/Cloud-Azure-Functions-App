@@ -1,6 +1,4 @@
-﻿<!-- Views/Customer/Create.cshtml -->
-@model ST10439147_CLDV6212_POE.Models.Customer
-
+﻿@model ST10439147_CLDV6212_POE.Models.Customer
 @{
     ViewData["Title"] = "Add New Customer";
 }
@@ -13,21 +11,30 @@
                     <h3 class="card-title mb-0">Add New Customer</h3>
                 </div>
                 <div class="card-body">
+                    @if (TempData["Success"] != null)
+                    {
+                        <div class="alert alert-success alert-dismissible fade show" role="alert">
+                            @TempData["Success"]
+                            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                        </div>
+                    }
+
                     <form asp-action="Create" method="post">
+                        @Html.AntiForgeryToken()
                         <div asp-validation-summary="ModelOnly" class="alert alert-danger"></div>
 
                         <div class="row">
                             <div class="col-md-6">
                                 <div class="mb-3">
                                     <label asp-for="FirstName" class="form-label">First Name</label>
-                                    <input asp-for="FirstName" class="form-control" placeholder="Enter first name" />
+                                    <input asp-for="FirstName" class="form-control" placeholder="Enter first name" required />
                                     <span asp-validation-for="FirstName" class="text-danger"></span>
                                 </div>
                             </div>
                             <div class="col-md-6">
                                 <div class="mb-3">
                                     <label asp-for="LastName" class="form-label">Last Name</label>
-                                    <input asp-for="LastName" class="form-control" placeholder="Enter last name" />
+                                    <input asp-for="LastName" class="form-control" placeholder="Enter last name" required />
                                     <span asp-validation-for="LastName" class="text-danger"></span>
                                 </div>
                             </div>
@@ -35,13 +42,13 @@
 
                         <div class="mb-3">
                             <label asp-for="Email" class="form-label">Email Address</label>
-                            <input asp-for="Email" type="email" class="form-control" placeholder="Enter email address" />
+                            <input asp-for="Email" type="email" class="form-control" placeholder="Enter email address" required />
                             <span asp-validation-for="Email" class="text-danger"></span>
                         </div>
 
                         <div class="mb-3">
                             <label asp-for="PhoneNumber" class="form-label">Phone Number</label>
-                            <input asp-for="PhoneNumber" class="form-control" placeholder="Enter phone number" />
+                            <input asp-for="PhoneNumber" type="tel" class="form-control" placeholder="Enter phone number" required />
                             <span asp-validation-for="PhoneNumber" class="text-danger"></span>
                         </div>
 

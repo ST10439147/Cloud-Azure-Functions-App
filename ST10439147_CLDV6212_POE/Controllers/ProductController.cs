@@ -6,17 +6,27 @@ namespace ST10439147_CLDV6212_POE.Controllers
 {
     public class ProductController : Controller
     {
-        private readonly AzureService _storageService;
+        private readonly TableService _tableService;
+        private readonly BlobService _blobService;
 
-        public ProductController(AzureService storageService)
+        public ProductController(TableService tableService, BlobService blobService)
         {
-            _storageService = storageService;
+            _tableService = tableService;
+            _blobService = blobService;
         }
 
         public async Task<IActionResult> Index()
         {
-            var products = await _storageService.GetAllProductsAsync();
-            return View(products);
+            try
+            {
+                var products = await _tableService.GetAllProductsAsync();
+                return View(products);
+            }
+            catch (Exception ex)
+            {
+                ViewBag.Error = "Unable to load products. Please try again.";
+                return View(new List<Product>());
+            }
         }
 
         [HttpGet]
@@ -30,13 +40,21 @@ namespace ST10439147_CLDV6212_POE.Controllers
         {
             if (ModelState.IsValid)
             {
-                if (imageFile != null && imageFile.Length > 0)
+                try
                 {
-                    product.ImageUrl = await _storageService.UploadImageAsync(imageFile);
-                }
+                    if (imageFile != null && imageFile.Length > 0)
+                    {
+                        product.ImageUrl = await _blobService.UploadImageAsync(imageFile);
+                    }
 
-                await _storageService.AddProductAsync(product);
-                return RedirectToAction(nameof(Index));
+                    await _tableService.InsertProductAsync(product);
+                    TempData["Success"] = "Product added successfully!";
+                    return RedirectToAction(nameof(Index));
+                }
+                catch (Exception ex)
+                {
+                    ModelState.AddModelError("", "Unable to save product. Please try again.");
+                }
             }
             return View(product);
         }
