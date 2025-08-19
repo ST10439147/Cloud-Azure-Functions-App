@@ -19,7 +19,7 @@ namespace ST10439147_CLDV6212_POE.Services
 
         public AzureService(IConfiguration configuration)
         {
-            _connectionString = configuration.GetConnectionString("AzureStorage");
+            _connectionString = configuration["AzureStorage:ConnectionString"];
             _tableServiceClient = new TableServiceClient(_connectionString);
             _blobServiceClient = new BlobServiceClient(_connectionString);
             _queueServiceClient = new QueueServiceClient(_connectionString);

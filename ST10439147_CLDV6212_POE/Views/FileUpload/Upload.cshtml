@@ -1,0 +1,236 @@
+﻿@{
+    ViewData["Title"] = "Upload File";
+}
+
+<div class="container mt-4">
+    <div class="row justify-content-center">
+        <div class="col-md-8">
+            <div class="card shadow">
+                <div class="card-header bg-primary text-white">
+                    <h4 class="mb-0">
+                        <i class="fas fa-cloud-upload-alt me-2"></i>Upload File
+                    </h4>
+                </div>
+                <div class="card-body">
+                    @if (TempData["Error"] != null)
+                    {
+                        <div class="alert alert-danger alert-dismissible fade show" role="alert">
+                            <i class="fas fa-exclamation-circle me-2"></i>@TempData["Error"]
+                            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                        </div>
+                    }
+
+                    <form asp-action="Upload" method="post" enctype="multipart/form-data" id="uploadForm">
+                        <div class="mb-4">
+                            <label for="file" class="form-label fw-bold">
+                                <i class="fas fa-file me-2"></i>Select File
+                            </label>
+                            <div class="upload-area border-2 border-dashed border-secondary rounded p-4 text-center position-relative"
+                                 ondrop="dropHandler(event);"
+                                 ondragover="dragOverHandler(event);"
+                                 ondragleave="dragLeaveHandler(event);">
+                                <input type="file"
+                                       name="file"
+                                       id="file"
+                                       class="form-control position-absolute top-0 start-0 w-100 h-100 opacity-0"
+                                       style="cursor: pointer;"
+                                       accept=".pdf,.doc,.docx,.xls,.xlsx,.jpg,.jpeg,.png,.gif,.txt,.zip,.rar"
+                                       onchange="fileSelected(this)">
+
+                                <div id="uploadPrompt">
+                                    <i class="fas fa-cloud-upload-alt fa-3x text-muted mb-3"></i>
+                                    <h5 class="text-muted">Drag and drop your file here</h5>
+                                    <p class="text-muted mb-3">or click to browse</p>
+                                    <small class="text-muted">
+                                        Supported formats: PDF, DOC, DOCX, XLS, XLSX, JPG, JPEG, PNG, GIF, TXT, ZIP, RAR
+                                    </small>
+                                </div>
+
+                                <div id="fileInfo" class="d-none">
+                                    <i class="fas fa-file fa-2x text-primary mb-2"></i>
+                                    <h6 id="fileName" class="mb-1"></h6>
+                                    <small id="fileSize" class="text-muted"></small>
+                                    <div class="mt-2">
+                                        <button type="button" class="btn btn-sm btn-outline-secondary" onclick="clearFile()">
+                                            <i class="fas fa-times me-1"></i>Remove
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="row">
+                            <div class="col-md-6">
+                                <button type="submit" class="btn btn-success w-100" id="uploadBtn" disabled>
+                                    <span id="uploadBtnText">
+                                        <i class="fas fa-upload me-2"></i>Upload File
+                                    </span>
+                                    <span id="uploadSpinner" class="d-none">
+                                        <span class="spinner-border spinner-border-sm me-2" role="status"></span>
+                                        Uploading...
+                                    </span>
+                                </button>
+                            </div>
+                            <div class="col-md-6">
+                                <a asp-action="Index" class="btn btn-outline-secondary w-100">
+                                    <i class="fas fa-arrow-left me-2"></i>Back to Files
+                                </a>
+                            </div>
+                        </div>
+                    </form>
+                </div>
+            </div>
+
+            <!-- Upload Guidelines Card -->
+            <div class="card mt-4">
+                <div class="card-header">
+                    <h6 class="mb-0">
+                        <i class="fas fa-info-circle me-2"></i>Upload Guidelines
+                    </h6>
+                </div>
+                <div class="card-body">
+                    <div class="row">
+                        <div class="col-md-6">
+                            <h6 class="text-success">
+                                <i class="fas fa-check me-2"></i>Supported Files
+                            </h6>
+                            <ul class="list-unstyled small">
+                                <li><i class="fas fa-file-pdf text-danger me-2"></i>PDF Documents</li>
+                                <li><i class="fas fa-file-word text-primary me-2"></i>Word Documents (DOC, DOCX)</li>
+                                <li><i class="fas fa-file-excel text-success me-2"></i>Excel Files (XLS, XLSX)</li>
+                                <li><i class="fas fa-file-image text-info me-2"></i>Images (JPG, PNG, GIF)</li>
+                                <li><i class="fas fa-file-archive text-warning me-2"></i>Archives (ZIP, RAR)</li>
+                            </ul>
+                        </div>
+                        <div class="col-md-6">
+                            <h6 class="text-info">
+                                <i class="fas fa-lightbulb me-2"></i>Tips
+                            </h6>
+                            <ul class="list-unstyled small">
+                                <li><i class="fas fa-arrow-right text-muted me-2"></i>Maximum file size: 100MB</li>
+                                <li><i class="fas fa-arrow-right text-muted me-2"></i>Files are stored securely in Azure</li>
+                                <li><i class="fas fa-arrow-right text-muted me-2"></i>You can download files anytime</li>
+                                <li><i class="fas fa-arrow-right text-muted me-2"></i>Use descriptive file names</li>
+                            </ul>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<style>
+    .upload-area {
+        transition: all 0.3s ease;
+        min-height: 200px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+
+        .upload-area:hover {
+            border-color: #0d6efd !important;
+            background-color: #f8f9ff;
+        }
+
+        .upload-area.drag-over {
+            border-color: #0d6efd !important;
+            background-color: #e7f1ff;
+            transform: scale(1.02);
+        }
+
+    .table th {
+        border-bottom: 2px solid #dee2e6;
+        font-weight: 600;
+    }
+
+    .btn-group .btn {
+        border-radius: 0.375rem;
+        margin-right: 0.25rem;
+    }
+
+        .btn-group .btn:last-child {
+            margin-right: 0;
+        }
+</style>
+
+<script>
+    let selectedFile = null;
+
+    function dragOverHandler(ev) {
+        ev.preventDefault();
+        ev.currentTarget.classList.add('drag-over');
+    }
+
+    function dragLeaveHandler(ev) {
+        ev.preventDefault();
+        ev.currentTarget.classList.remove('drag-over');
+    }
+
+    function dropHandler(ev) {
+        ev.preventDefault();
+        ev.currentTarget.classList.remove('drag-over');
+
+        const files = ev.dataTransfer.files;
+        if (files.length > 0) {
+            const fileInput = document.getElementById('file');
+            fileInput.files = files;
+            fileSelected(fileInput);
+        }
+    }
+
+    function fileSelected(input) {
+        const file = input.files[0];
+        selectedFile = file;
+
+        if (file) {
+            document.getElementById('uploadPrompt').classList.add('d-none');
+            document.getElementById('fileInfo').classList.remove('d-none');
+            document.getElementById('fileName').textContent = file.name;
+            document.getElementById('fileSize').textContent = formatFileSize(file.size);
+            document.getElementById('uploadBtn').disabled = false;
+        }
+    }
+
+    function clearFile() {
+        selectedFile = null;
+        document.getElementById('file').value = '';
+        document.getElementById('uploadPrompt').classList.remove('d-none');
+        document.getElementById('fileInfo').classList.add('d-none');
+        document.getElementById('uploadBtn').disabled = true;
+    }
+
+    function formatFileSize(bytes) {
+        if (bytes === 0) return '0 Bytes';
+        const k = 1024;
+        const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+        const i = Math.floor(Math.log(bytes) / Math.log(k));
+        return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
+    }
+
+    // Handle form submission
+    document.getElementById('uploadForm').addEventListener('submit', function(e) {
+        if (!selectedFile) {
+            e.preventDefault();
+            alert('Please select a file to upload.');
+            return;
+        }
+
+        // Show loading state
+        document.getElementById('uploadBtnText').classList.add('d-none');
+        document.getElementById('uploadSpinner').classList.remove('d-none');
+        document.getElementById('uploadBtn').disabled = true;
+    });
+
+    // Auto-dismiss alerts after 5 seconds
+    document.addEventListener('DOMContentLoaded', function() {
+        setTimeout(function() {
+            const alerts = document.querySelectorAll('.alert');
+            alerts.forEach(function(alert) {
+                const bsAlert = new bootstrap.Alert(alert);
+                bsAlert.close();
+            });
+        }, 5000);
+    });
+</script>
