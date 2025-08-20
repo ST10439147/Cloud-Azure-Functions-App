@@ -32,37 +32,45 @@ namespace ST10439147_CLDV6212_POE.Controllers
         [HttpGet]
         public IActionResult Create()
         {
-            return View();
+            var customer = new Customer(); // This will initialize RowKey and PartitionKey
+            return View(customer);
         }
 
         [HttpPost]
         [ValidateAntiForgeryToken]
         public async Task<IActionResult> Create(Customer customer)
         {
+            // Ensure RowKey and PartitionKey are set BEFORE model validation
+            if (string.IsNullOrEmpty(customer.RowKey))
+            {
+                customer.RowKey = Guid.NewGuid().ToString();
+            }
+
+            if (string.IsNullOrEmpty(customer.PartitionKey))
+            {
+                customer.PartitionKey = "Customer"; // Match the default in your model
+            }
+
+            // Remove RowKey and PartitionKey from ModelState validation
+            ModelState.Remove("RowKey");
+            ModelState.Remove("PartitionKey");
+
             if (ModelState.IsValid)
             {
                 try
                 {
-                    // Ensure RowKey is set
-                    if (string.IsNullOrEmpty(customer.RowKey))
-                    {
-                        customer.RowKey = Guid.NewGuid().ToString();
-                    }
-
                     await _tableService.InsertCustomerAsync(customer);
                     TempData["Success"] = "Customer added successfully!";
                     return RedirectToAction(nameof(Index));
                 }
                 catch (Exception ex)
                 {
-                    // Log the exception for debugging
                     Console.WriteLine($"Error saving customer: {ex.Message}");
                     ModelState.AddModelError("", "Unable to save customer. Please try again.");
                 }
             }
             else
             {
-                // Log validation errors for debugging
                 foreach (var modelState in ModelState)
                 {
                     foreach (var error in modelState.Value.Errors)

@@ -7,6 +7,13 @@ namespace ST10439147_CLDV6212_POE.Models
 {
     public class Customer : ITableEntity
     {
+        public Customer()
+        {
+            // Initialize RowKey with a new GUID if not already set
+            RowKey = Guid.NewGuid().ToString();
+            PartitionKey = "Customer";
+        }
+
         public string PartitionKey { get; set; } = "Customer";
         public string RowKey { get; set; } // Unique CustomerId (GUID)
 
