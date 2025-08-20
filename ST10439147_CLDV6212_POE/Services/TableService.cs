@@ -72,6 +72,43 @@ namespace ST10439147_CLDV6212_POE.Services
             }
         }
 
+        public async Task<Customer> GetCustomerByIdAsync(string partitionKey, string rowKey)
+        {
+            try
+            {
+                var response = await _customersTableClient.GetEntityAsync<Customer>(partitionKey, rowKey);
+                return response.Value;
+            }
+            catch (Exception ex)
+            {
+                throw new InvalidOperationException($"Failed to retrieve customer: {ex.Message}", ex);
+            }
+        }
+
+        public async Task UpdateCustomerAsync(Customer customer)
+        {
+            try
+            {
+                await _customersTableClient.UpdateEntityAsync(customer, customer.ETag);
+            }
+            catch (Exception ex)
+            {
+                throw new InvalidOperationException($"Failed to update customer: {ex.Message}", ex);
+            }
+        }
+
+        public async Task DeleteCustomerAsync(string partitionKey, string rowKey)
+        {
+            try
+            {
+                await _customersTableClient.DeleteEntityAsync(partitionKey, rowKey);
+            }
+            catch (Exception ex)
+            {
+                throw new InvalidOperationException($"Failed to delete customer: {ex.Message}", ex);
+            }
+        }
+
         #endregion
 
         #region Product Operations
@@ -110,6 +147,43 @@ namespace ST10439147_CLDV6212_POE.Services
             }
         }
 
+        public async Task<Product> GetProductByIdAsync(string partitionKey, string rowKey)
+        {
+            try
+            {
+                var response = await _productsTableClient.GetEntityAsync<Product>(partitionKey, rowKey);
+                return response.Value;
+            }
+            catch (Exception ex)
+            {
+                throw new InvalidOperationException($"Failed to retrieve product: {ex.Message}", ex);
+            }
+        }
+
+        public async Task UpdateProductAsync(Product product)
+        {
+            try
+            {
+                await _productsTableClient.UpdateEntityAsync(product, product.ETag, TableUpdateMode.Replace);
+            }
+            catch (Exception ex)
+            {
+                throw new InvalidOperationException($"Failed to update product: {ex.Message}", ex);
+            }
+        }
+
+        public async Task DeleteProductAsync(string partitionKey, string rowKey)
+        {
+            try
+            {
+                await _productsTableClient.DeleteEntityAsync(partitionKey, rowKey);
+            }
+            catch (Exception ex)
+            {
+                throw new InvalidOperationException($"Failed to delete product: {ex.Message}", ex);
+            }
+        }
+
         #endregion
 
         #region Order Operations
@@ -145,6 +219,43 @@ namespace ST10439147_CLDV6212_POE.Services
             catch (Exception ex)
             {
                 throw new InvalidOperationException($"Failed to retrieve orders: {ex.Message}", ex);
+            }
+        }
+
+        public async Task<Order> GetOrderByIdAsync(string partitionKey, string rowKey)
+        {
+            try
+            {
+                var response = await _ordersTableClient.GetEntityAsync<Order>(partitionKey, rowKey);
+                return response.Value;
+            }
+            catch (Exception ex)
+            {
+                throw new InvalidOperationException($"Failed to retrieve order: {ex.Message}", ex);
+            }
+        }
+
+        public async Task UpdateOrderAsync(Order order)
+        {
+            try
+            {
+                await _ordersTableClient.UpdateEntityAsync(order, order.ETag, TableUpdateMode.Replace);
+            }
+            catch (Exception ex)
+            {
+                throw new InvalidOperationException($"Failed to update order: {ex.Message}", ex);
+            }
+        }
+
+        public async Task DeleteOrderAsync(string partitionKey, string rowKey)
+        {
+            try
+            {
+                await _ordersTableClient.DeleteEntityAsync(partitionKey, rowKey);
+            }
+            catch (Exception ex)
+            {
+                throw new InvalidOperationException($"Failed to delete order: {ex.Message}", ex);
             }
         }
 
