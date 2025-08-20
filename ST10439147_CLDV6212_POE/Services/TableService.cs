@@ -1,4 +1,5 @@
-﻿using Azure.Data.Tables;
+﻿using Azure;
+using Azure.Data.Tables;
 using ST10439147_CLDV6212_POE.Models;
 
 namespace ST10439147_CLDV6212_POE.Services
@@ -89,7 +90,16 @@ namespace ST10439147_CLDV6212_POE.Services
         {
             try
             {
-                await _customersTableClient.UpdateEntityAsync(customer, customer.ETag);
+                // Use Replace mode with the ETag for optimistic concurrency
+                await _customersTableClient.UpdateEntityAsync(customer, customer.ETag, TableUpdateMode.Replace);
+            }
+            catch (RequestFailedException ex) when (ex.Status == 412) // Precondition Failed
+            {
+                throw new InvalidOperationException("The customer has been modified by another user. Please refresh and try again.", ex);
+            }
+            catch (RequestFailedException ex) when (ex.Status == 404) // Not Found
+            {
+                throw new InvalidOperationException("The customer no longer exists.", ex);
             }
             catch (Exception ex)
             {
