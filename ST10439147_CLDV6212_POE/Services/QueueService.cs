@@ -18,7 +18,7 @@ namespace ST10439147_CLDV6212_POE.Services
 
         public async Task SendOrderMessageAsync(OrderMessage orderMessage)
         {
-            var queueClient = _queueServiceClient.GetQueueClient("order-processing");
+            var queueClient = _queueServiceClient.GetQueueClient("ordermsg");
             await queueClient.CreateIfNotExistsAsync();
 
             var messageJson = JsonSerializer.Serialize(orderMessage);
@@ -27,7 +27,7 @@ namespace ST10439147_CLDV6212_POE.Services
 
         public async Task SendInventoryMessageAsync(string message)
         {
-            var queueClient = _queueServiceClient.GetQueueClient("inventory-management");
+            var queueClient = _queueServiceClient.GetQueueClient("inventory-msg");
             await queueClient.CreateIfNotExistsAsync();
 
             await queueClient.SendMessageAsync(message);
