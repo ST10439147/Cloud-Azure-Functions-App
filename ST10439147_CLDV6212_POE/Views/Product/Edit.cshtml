@@ -1,5 +1,233 @@
-﻿@*
-    For more information on enabling MVC for empty projects, visit https://go.microsoft.com/fwlink/?LinkID=397860
-*@
+﻿@model ST10439147_CLDV6212_POE.Models.Product
+
 @{
+    ViewData["Title"] = "Edit Product";
+    Layout = "~/Views/Shared/_Layout.cshtml";
+}
+
+<div class="container mt-4">
+    <div class="row justify-content-center">
+        <div class="col-md-8">
+            <div class="card shadow">
+                <div class="card-header bg-primary text-white">
+                    <h2 class="card-title mb-0">
+                        <i class="fas fa-edit"></i> Edit Product
+                    </h2>
+                </div>
+                <div class="card-body">
+                    @if (ViewBag.Error != null)
+                    {
+                        <div class="alert alert-danger alert-dismissible fade show" role="alert">
+                            <i class="fas fa-exclamation-triangle"></i> @ViewBag.Error
+                            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+                        </div>
+                    }
+
+                    <form asp-action="Edit" method="post" enctype="multipart/form-data" novalidate>
+                        @Html.AntiForgeryToken()
+
+                        <!-- Hidden fields for PartitionKey and RowKey -->
+                        <input asp-for="PartitionKey" type="hidden" />
+                        <input asp-for="RowKey" type="hidden" />
+
+                        <div class="row">
+                            <!-- Product Name -->
+                            <div class="col-md-6 mb-3">
+                                <label asp-for="Name" class="form-label">
+                                    <i class="fas fa-tag"></i> Product Name *
+                                </label>
+                                <input asp-for="Name" class="form-control" placeholder="Enter product name" />
+                                <span asp-validation-for="Name" class="text-danger small"></span>
+                            </div>
+
+                            <!-- Price -->
+                            <div class="col-md-6 mb-3">
+                                <label asp-for="Price" class="form-label">
+                                    <i class="fas fa-dollar-sign"></i> Price *
+                                </label>
+                                <input asp-for="Price" type="number" class="form-control"
+                                       placeholder="Enter price" step="0.01" min="0" />
+                                <span asp-validation-for="Price" class="text-danger small"></span>
+                            </div>
+                        </div>
+
+                        <!-- Description -->
+                        <div class="mb-3">
+                            <label asp-for="Description" class="form-label">
+                                <i class="fas fa-align-left"></i> Description
+                            </label>
+                            <textarea asp-for="Description" class="form-control" rows="3"
+                                      placeholder="Enter product description (optional)"></textarea>
+                            <span asp-validation-for="Description" class="text-danger small"></span>
+                        </div>
+
+                        <!-- Stock Quantity -->
+                        <div class="mb-3">
+                            <label asp-for="StockQuantity" class="form-label">
+                                <i class="fas fa-boxes"></i> Stock Quantity *
+                            </label>
+                            <input asp-for="StockQuantity" type="number" class="form-control"
+                                   placeholder="Enter stock quantity" min="0" />
+                            <span asp-validation-for="StockQuantity" class="text-danger small"></span>
+                        </div>
+
+                        <!-- Current Image Display -->
+                        @if (!string.IsNullOrEmpty(Model.ImageUrl))
+                        {
+                            <div class="mb-3">
+                                <label class="form-label">
+                                    <i class="fas fa-image"></i> Current Image
+                                </label>
+                                <div class="mb-2">
+                                    <img src="@Model.ImageUrl" alt="Current product image"
+                                         class="img-thumbnail" style="max-width: 200px; max-height: 200px;" />
+                                </div>
+                            </div>
+                        }
+
+                        <!-- Image Upload -->
+                        <div class="mb-3">
+                            <label for="imageFile" class="form-label">
+                                <i class="fas fa-camera"></i>
+                                @(string.IsNullOrEmpty(Model.ImageUrl) ? "Product Image" : "Replace Image")
+                            </label>
+                            <input type="file" class="form-control" id="imageFile" name="imageFile"
+                                   accept="image/*" />
+                            <div class="form-text">
+                                <small class="text-muted">
+                                    <i class="fas fa-info-circle"></i>
+                                    Supported formats: JPG, JPEG, PNG, GIF, BMP, WEBP (Max size: 5MB)
+                                    @if (!string.IsNullOrEmpty(Model.ImageUrl))
+                                    {
+                                        <br />
+                                        <span>Leave empty to keep current image.</span>
+                                    }
+                                </small>
+                            </div>
+                            @Html.ValidationMessage("imageFile", "", new { @class = "text-danger small" })
+                        </div>
+
+                        <!-- Image Preview -->
+                        <div class="mb-3" id="imagePreviewContainer" style="display: none;">
+                            <label class="form-label">
+                                <i class="fas fa-eye"></i> New Image Preview
+                            </label>
+                            <div>
+                                <img id="imagePreview" class="img-thumbnail"
+                                     style="max-width: 200px; max-height: 200px;" />
+                            </div>
+                        </div>
+
+                        <!-- Action Buttons -->
+                        <div class="row mt-4">
+                            <div class="col-12">
+                                <button type="submit" class="btn btn-success me-2">
+                                    <i class="fas fa-save"></i> Update Product
+                                </button>
+                                <a asp-action="Details" asp-route-id="@Model.RowKey" class="btn btn-info me-2">
+                                    <i class="fas fa-eye"></i> View Details
+                                </a>
+                                <a asp-action="Index" class="btn btn-secondary">
+                                    <i class="fas fa-arrow-left"></i> Back to Products
+                                </a>
+                            </div>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+@section Scripts {
+    <partial name="_ValidationScriptsPartial" />
+
+    <script>
+        // Image preview functionality
+        document.getElementById('imageFile').addEventListener('change', function(e) {
+            const file = e.target.files[0];
+            const previewContainer = document.getElementById('imagePreviewContainer');
+            const previewImg = document.getElementById('imagePreview');
+
+            if (file) {
+                // Validate file type
+                const validTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/bmp', 'image/webp'];
+                if (!validTypes.includes(file.type)) {
+                    alert('Please select a valid image file (JPG, JPEG, PNG, GIF, BMP, WEBP).');
+                    this.value = '';
+                    previewContainer.style.display = 'none';
+                    return;
+                }
+
+                // Validate file size (5MB limit)
+                const maxSize = 5 * 1024 * 1024; // 5MB in bytes
+                if (file.size > maxSize) {
+                    alert('File size cannot exceed 5MB. Please choose a smaller image.');
+                    this.value = '';
+                    previewContainer.style.display = 'none';
+                    return;
+                }
+
+                // Show preview
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    previewImg.src = e.target.result;
+                    previewContainer.style.display = 'block';
+                };
+                reader.readAsDataURL(file);
+            } else {
+                previewContainer.style.display = 'none';
+            }
+        });
+
+        // Form validation enhancement
+        document.querySelector('form').addEventListener('submit', function(e) {
+            let isValid = true;
+
+            // Clear previous custom validation messages
+            document.querySelectorAll('.custom-error').forEach(el => el.remove());
+
+            // Validate required fields
+            const requiredFields = [
+                { field: document.querySelector('[name="Name"]'), message: 'Product name is required.' },
+                { field: document.querySelector('[name="Price"]'), message: 'Price is required.' },
+                { field: document.querySelector('[name="StockQuantity"]'), message: 'Stock quantity is required.' }
+            ];
+
+            requiredFields.forEach(item => {
+                if (!item.field.value.trim()) {
+                    showFieldError(item.field, item.message);
+                    isValid = false;
+                }
+            });
+
+            // Validate price
+            const priceField = document.querySelector('[name="Price"]');
+            const price = parseFloat(priceField.value);
+            if (price <= 0) {
+                showFieldError(priceField, 'Price must be greater than 0.');
+                isValid = false;
+            }
+
+            // Validate stock quantity
+            const stockField = document.querySelector('[name="StockQuantity"]');
+            const stock = parseInt(stockField.value);
+            if (stock < 0) {
+                showFieldError(stockField, 'Stock quantity cannot be negative.');
+                isValid = false;
+            }
+
+            if (!isValid) {
+                e.preventDefault();
+            }
+        });
+
+        function showFieldError(field, message) {
+            const errorSpan = document.createElement('span');
+            errorSpan.className = 'text-danger small custom-error';
+            errorSpan.textContent = message;
+            field.parentNode.appendChild(errorSpan);
+            field.classList.add('is-invalid');
+        }
+    </script>
 }
