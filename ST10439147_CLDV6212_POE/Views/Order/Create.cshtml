@@ -49,7 +49,7 @@
                                     @foreach (var product in (IEnumerable<ST10439147_CLDV6212_POE.Models.Product>)ViewBag.Products)
                                     {
                                         <option value="@product.RowKey"
-                                                data-price="@product.Price"
+                                                data-price="@product.Price.ToString("F2", System.Globalization.CultureInfo.InvariantCulture)"
                                                 data-stock="@product.StockQuantity"
                                                 selected="@(Model?.ProductId == product.RowKey)">
                                             @product.Name - R @product.Price.ToString("F2") (@product.StockQuantity in stock)
@@ -76,8 +76,11 @@
                                 <input type="text" id="totalPriceDisplay" class="form-control" readonly
                                        value="@(Model?.TotalPrice.ToString("F2") ?? "0.00")" />
                             </div>
-                            <input asp-for="TotalPrice" type="hidden" id="totalPriceHidden"
+                            <!-- Changed to use proper number input with step for decimal precision -->
+                            <input asp-for="TotalPrice" type="number" step="0.01" min="0.01"
+                                   id="totalPriceHidden" style="display: none;"
                                    value="@(Model?.TotalPrice ?? 0)" />
+                            <span asp-validation-for="TotalPrice" class="text-danger"></span>
                         </div>
 
                         <div class="d-flex justify-content-between">
@@ -114,12 +117,16 @@
                 const quantity = parseInt(quantityInput.value) || 0;
 
                 if (selectedOption && selectedOption.value && selectedOption.dataset.price && quantity > 0) {
+                    // Use parseFloat to handle decimal prices properly
                     const price = parseFloat(selectedOption.dataset.price);
                     const stock = parseInt(selectedOption.dataset.stock);
                     const total = price * quantity;
 
+                    // Format display with 2 decimal places
                     totalPriceDisplay.value = total.toFixed(2);
-                    totalPriceHidden.value = total.toFixed(2);
+
+                    // Set the actual numeric value (not string) for form submission
+                    totalPriceHidden.value = total;
 
                     // Check stock availability
                     if (quantity > stock) {
@@ -133,7 +140,7 @@
                     }
                 } else {
                     totalPriceDisplay.value = '0.00';
-                    totalPriceHidden.value = '0.00';
+                    totalPriceHidden.value = 0;
                     stockWarning.style.display = 'none';
                     enableSubmitIfValid();
                 }
@@ -143,8 +150,9 @@
                 const customerId = customerSelect.value;
                 const productId = productSelect.value;
                 const quantity = parseInt(quantityInput.value) || 0;
+                const total = parseFloat(totalPriceHidden.value) || 0;
 
-                if (!customerId || !productId || quantity <= 0) {
+                if (!customerId || !productId || quantity <= 0 || total <= 0) {
                     submitBtn.disabled = true;
                     if (!customerId && !productId) {
                         submitBtn.textContent = 'Select Customer and Product';
@@ -152,19 +160,14 @@
                         submitBtn.textContent = 'Select Customer';
                     } else if (!productId) {
                         submitBtn.textContent = 'Select Product';
+                    } else if (quantity <= 0) {
+                        submitBtn.textContent = 'Enter Valid Quantity';
                     } else {
-                        submitBtn.textContent = 'Enter Quantity';
+                        submitBtn.textContent = 'Invalid Total Price';
                     }
                 } else {
-                    // Check if total price is calculated
-                    const total = parseFloat(totalPriceHidden.value) || 0;
-                    if (total > 0) {
-                        submitBtn.disabled = false;
-                        submitBtn.innerHTML = '<i class="fas fa-shopping-cart"></i> Create Order';
-                    } else {
-                        submitBtn.disabled = true;
-                        submitBtn.textContent = 'Invalid Selection';
-                    }
+                    submitBtn.disabled = false;
+                    submitBtn.innerHTML = '<i class="fas fa-shopping-cart"></i> Create Order';
                 }
             }
 
@@ -186,10 +189,6 @@
 
             // Initialize on page load
             console.log('Initializing form...');
-            console.log('Initial customer:', customerSelect.value);
-            console.log('Initial product:', productSelect.value);
-            console.log('Initial quantity:', quantityInput.value);
-
             updateTotal();
 
             // Form submission validation
@@ -216,6 +215,13 @@
                         alert(`Only ${stock} items available in stock.`);
                         return false;
                     }
+                }
+
+                // Final validation before submission
+                if (isNaN(total) || total <= 0) {
+                    e.preventDefault();
+                    alert('Invalid total price calculated. Please refresh and try again.');
+                    return false;
                 }
 
                 console.log('Form validation passed, submitting...');

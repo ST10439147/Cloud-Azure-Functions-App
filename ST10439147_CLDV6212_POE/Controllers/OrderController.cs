@@ -74,13 +74,16 @@ namespace ST10439147_CLDV6212_POE.Controllers
         [ValidateAntiForgeryToken]
         public async Task<IActionResult> Create(Order order)
         {
-            // Remove auto-generated fields from model validation
             ModelState.Remove("RowKey");
             ModelState.Remove("PartitionKey");
             ModelState.Remove("OrderDate");
             ModelState.Remove("Status");
+            ModelState.Remove("Timestamp");
+            ModelState.Remove("ETag");
 
-            // Additional validation
+            _logger.LogInformation("Received order - TotalPrice: {TotalPrice}, Type: {Type}",
+                order.TotalPrice, order.TotalPrice.GetType().Name);
+
             if (string.IsNullOrEmpty(order.CustomerId))
             {
                 ModelState.AddModelError("CustomerId", "Please select a customer");
@@ -426,6 +429,13 @@ namespace ST10439147_CLDV6212_POE.Controllers
         [ValidateAntiForgeryToken]
         public async Task<IActionResult> Edit(string partitionKey, string rowKey, Order order)
         {
+            
+            ModelState.Remove("RowKey");
+            ModelState.Remove("PartitionKey");
+            ModelState.Remove("OrderDate");
+            ModelState.Remove("Timestamp");
+            ModelState.Remove("ETag");
+
             // Ensure the route parameters match the model
             if (partitionKey != order.PartitionKey || rowKey != order.RowKey)
             {
