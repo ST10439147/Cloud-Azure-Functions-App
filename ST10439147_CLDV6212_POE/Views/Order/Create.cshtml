@@ -13,18 +13,27 @@
                     <h3 class="card-title mb-0">Create New Order</h3>
                 </div>
                 <div class="card-body">
+                    @if (ViewBag.Error != null)
+                    {
+                        <div class="alert alert-danger">
+                            @ViewBag.Error
+                        </div>
+                    }
+
                     <form asp-action="Create" method="post">
                         <div asp-validation-summary="ModelOnly" class="alert alert-danger"></div>
 
                         <div class="mb-3">
-                            <label asp-for="CustomerId" class="form-label">Customer</label>
-                            <select asp-for="CustomerId" class="form-select" id="customerSelect">
+                            <label asp-for="CustomerId" class="form-label">Customer *</label>
+                            <select asp-for="CustomerId" class="form-select" id="customerSelect" required>
                                 <option value="">Select a customer</option>
                                 @if (ViewBag.Customers != null)
                                 {
                                     @foreach (var customer in (IEnumerable<ST10439147_CLDV6212_POE.Models.Customer>)ViewBag.Customers)
                                     {
-                                        <option value="@customer.RowKey">@customer.FirstName @customer.LastName</option>
+                                        <option value="@customer.RowKey" selected="@(Model?.CustomerId == customer.RowKey)">
+                                            @customer.FirstName @customer.LastName (@customer.Email)
+                                        </option>
                                     }
                                 }
                             </select>
@@ -32,15 +41,18 @@
                         </div>
 
                         <div class="mb-3">
-                            <label asp-for="ProductId" class="form-label">Product</label>
-                            <select asp-for="ProductId" class="form-select" id="productSelect">
+                            <label asp-for="ProductId" class="form-label">Product *</label>
+                            <select asp-for="ProductId" class="form-select" id="productSelect" required>
                                 <option value="">Select a product</option>
                                 @if (ViewBag.Products != null)
                                 {
                                     @foreach (var product in (IEnumerable<ST10439147_CLDV6212_POE.Models.Product>)ViewBag.Products)
                                     {
-                                        <option value="@product.RowKey" data-price="@product.Price" data-stock="@product.StockQuantity">
-                                            @product.Name - $@product.Price.ToString("F2") (@product.StockQuantity in stock)
+                                        <option value="@product.RowKey"
+                                                data-price="@product.Price"
+                                                data-stock="@product.StockQuantity"
+                                                selected="@(Model?.ProductId == product.RowKey)">
+                                            @product.Name - R @product.Price.ToString("F2") (@product.StockQuantity in stock)
                                         </option>
                                     }
                                 }
@@ -49,8 +61,10 @@
                         </div>
 
                         <div class="mb-3">
-                            <label asp-for="Quantity" class="form-label">Quantity</label>
-                            <input asp-for="Quantity" type="number" min="1" class="form-control" id="quantityInput" placeholder="1" />
+                            <label asp-for="Quantity" class="form-label">Quantity *</label>
+                            <input asp-for="Quantity" type="number" min="1" max="999"
+                                   class="form-control" id="quantityInput"
+                                   value="@(Model?.Quantity ?? 1)" required />
                             <span asp-validation-for="Quantity" class="text-danger"></span>
                             <div id="stockWarning" class="form-text text-warning" style="display: none;"></div>
                         </div>
@@ -58,10 +72,12 @@
                         <div class="mb-3">
                             <label class="form-label">Total Price</label>
                             <div class="input-group">
-                                <span class="input-group-text">$</span>
-                                <input type="text" id="totalPrice" class="form-control" readonly placeholder="0.00" />
+                                <span class="input-group-text">R</span>
+                                <input type="text" id="totalPriceDisplay" class="form-control" readonly
+                                       value="@(Model?.TotalPrice.ToString("F2") ?? "0.00")" />
                             </div>
-                            <input asp-for="TotalPrice" type="hidden" id="totalPriceHidden" />
+                            <input asp-for="TotalPrice" type="hidden" id="totalPriceHidden"
+                                   value="@(Model?.TotalPrice ?? 0)" />
                         </div>
 
                         <div class="d-flex justify-content-between">
@@ -87,16 +103,17 @@
         document.addEventListener('DOMContentLoaded', function() {
             const productSelect = document.getElementById('productSelect');
             const quantityInput = document.getElementById('quantityInput');
-            const totalPriceDisplay = document.getElementById('totalPrice');
+            const totalPriceDisplay = document.getElementById('totalPriceDisplay');
             const totalPriceHidden = document.getElementById('totalPriceHidden');
             const stockWarning = document.getElementById('stockWarning');
             const submitBtn = document.getElementById('submitBtn');
+            const customerSelect = document.getElementById('customerSelect');
 
             function updateTotal() {
                 const selectedOption = productSelect.options[productSelect.selectedIndex];
                 const quantity = parseInt(quantityInput.value) || 0;
 
-                if (selectedOption && selectedOption.dataset.price && quantity > 0) {
+                if (selectedOption && selectedOption.value && selectedOption.dataset.price && quantity > 0) {
                     const price = parseFloat(selectedOption.dataset.price);
                     const stock = parseInt(selectedOption.dataset.stock);
                     const total = price * quantity;
@@ -109,20 +126,101 @@
                         stockWarning.textContent = `Warning: Only ${stock} items available in stock.`;
                         stockWarning.style.display = 'block';
                         submitBtn.disabled = true;
+                        submitBtn.textContent = 'Insufficient Stock';
                     } else {
                         stockWarning.style.display = 'none';
-                        submitBtn.disabled = false;
+                        enableSubmitIfValid();
                     }
                 } else {
                     totalPriceDisplay.value = '0.00';
                     totalPriceHidden.value = '0.00';
                     stockWarning.style.display = 'none';
-                    submitBtn.disabled = false;
+                    enableSubmitIfValid();
                 }
             }
 
-            productSelect.addEventListener('change', updateTotal);
-            quantityInput.addEventListener('input', updateTotal);
+            function enableSubmitIfValid() {
+                const customerId = customerSelect.value;
+                const productId = productSelect.value;
+                const quantity = parseInt(quantityInput.value) || 0;
+
+                if (!customerId || !productId || quantity <= 0) {
+                    submitBtn.disabled = true;
+                    if (!customerId && !productId) {
+                        submitBtn.textContent = 'Select Customer and Product';
+                    } else if (!customerId) {
+                        submitBtn.textContent = 'Select Customer';
+                    } else if (!productId) {
+                        submitBtn.textContent = 'Select Product';
+                    } else {
+                        submitBtn.textContent = 'Enter Quantity';
+                    }
+                } else {
+                    // Check if total price is calculated
+                    const total = parseFloat(totalPriceHidden.value) || 0;
+                    if (total > 0) {
+                        submitBtn.disabled = false;
+                        submitBtn.innerHTML = '<i class="fas fa-shopping-cart"></i> Create Order';
+                    } else {
+                        submitBtn.disabled = true;
+                        submitBtn.textContent = 'Invalid Selection';
+                    }
+                }
+            }
+
+            // Event listeners
+            productSelect.addEventListener('change', function() {
+                console.log('Product changed:', this.value);
+                updateTotal();
+            });
+
+            quantityInput.addEventListener('input', function() {
+                console.log('Quantity changed:', this.value);
+                updateTotal();
+            });
+
+            customerSelect.addEventListener('change', function() {
+                console.log('Customer changed:', this.value);
+                enableSubmitIfValid();
+            });
+
+            // Initialize on page load
+            console.log('Initializing form...');
+            console.log('Initial customer:', customerSelect.value);
+            console.log('Initial product:', productSelect.value);
+            console.log('Initial quantity:', quantityInput.value);
+
+            updateTotal();
+
+            // Form submission validation
+            document.querySelector('form').addEventListener('submit', function(e) {
+                const customerId = customerSelect.value;
+                const productId = productSelect.value;
+                const quantity = parseInt(quantityInput.value) || 0;
+                const total = parseFloat(totalPriceHidden.value) || 0;
+
+                console.log('Form submission - Customer:', customerId, 'Product:', productId, 'Quantity:', quantity, 'Total:', total);
+
+                if (!customerId || !productId || quantity <= 0 || total <= 0) {
+                    e.preventDefault();
+                    alert('Please complete all required fields with valid values.');
+                    return false;
+                }
+
+                // Additional stock validation
+                const selectedOption = productSelect.options[productSelect.selectedIndex];
+                if (selectedOption && selectedOption.dataset.stock) {
+                    const stock = parseInt(selectedOption.dataset.stock);
+                    if (quantity > stock) {
+                        e.preventDefault();
+                        alert(`Only ${stock} items available in stock.`);
+                        return false;
+                    }
+                }
+
+                console.log('Form validation passed, submitting...');
+                return true;
+            });
         });
     </script>
 }

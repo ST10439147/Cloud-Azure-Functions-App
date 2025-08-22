@@ -43,7 +43,7 @@ namespace ST10439147_CLDV6212_POE.Models
         public static bool IsAllowedFileType(string fileName)
         {
             var extension = Path.GetExtension(fileName).ToLower();
-            return extension == ".pdf" || extension == ".docx" || extension == ".txt";
+            return extension == ".pdf" || extension == ".docx" || extension == ".txt" || extension == ".xlsx";
         }
 
         // Helper method to get content type
@@ -55,6 +55,7 @@ namespace ST10439147_CLDV6212_POE.Models
                 ".pdf" => "application/pdf",
                 ".docx" => "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
                 ".txt" => "text/plain",
+                ".xlsx" => "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 _ => "application/octet-stream"
             };
         }

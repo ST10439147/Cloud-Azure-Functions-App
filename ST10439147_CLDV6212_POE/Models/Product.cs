@@ -24,7 +24,7 @@ namespace ST10439147_CLDV6212_POE.Models
         [Range(0.01, double.MaxValue, ErrorMessage = "Price must be greater than 0")]
         [Display(Name = "Price")]
         [DataType(DataType.Currency)]
-        public double Price { get; set; } // decimal
+        public double Price { get; set; } 
 
         [Required(ErrorMessage = "Stock quantity is required")]
         [Range(0, int.MaxValue, ErrorMessage = "Stock quantity cannot be negative")]

@@ -9,14 +9,14 @@ namespace ST10439147_CLDV6212_POE.Controllers
         private readonly FileShareService _storageService;
         private readonly HashSet<string> _allowedExtensions = new HashSet<string>
         {
-            ".pdf", ".docx", ".txt"
+            ".pdf", ".docx", ".txt", ".xlsx"
         };
-
+        //--------------------------------------------------------------------------------------------------------------------------------------------------------------//
         public FileUploadController(FileShareService storageService)
         {
             _storageService = storageService;
         }
-
+        //--------------------------------------------------------------------------------------------------------------------------------------------------------------//
         public async Task<IActionResult> Index()
         {
             var files = await _storageService.GetAllFilesAsync();
@@ -39,13 +39,13 @@ namespace ST10439147_CLDV6212_POE.Controllers
 
             return View(fileUploads);
         }
-
+        //--------------------------------------------------------------------------------------------------------------------------------------------------------------//
         [HttpGet]
         public IActionResult Upload()
         {
             return View();
         }
-
+        //--------------------------------------------------------------------------------------------------------------------------------------------------------------//
         [HttpPost]
         public async Task<IActionResult> Upload(IFormFile file)
         {
@@ -59,7 +59,7 @@ namespace ST10439147_CLDV6212_POE.Controllers
             var fileExtension = Path.GetExtension(file.FileName).ToLower();
             if (!_allowedExtensions.Contains(fileExtension))
             {
-                TempData["Error"] = "Only PDF, DOCX, and TXT files are allowed.";
+                TempData["Error"] = "Only PDF, DOCX, XLSX, and TXT files are allowed.";
                 return View();
             }
 
@@ -82,7 +82,7 @@ namespace ST10439147_CLDV6212_POE.Controllers
                 return View();
             }
         }
-
+        //--------------------------------------------------------------------------------------------------------------------------------------------------------------//
         public async Task<IActionResult> Download(string fileName)
         {
             if (string.IsNullOrEmpty(fileName))
@@ -103,7 +103,7 @@ namespace ST10439147_CLDV6212_POE.Controllers
                 return RedirectToAction(nameof(Index));
             }
         }
-
+        //--------------------------------------------------------------------------------------------------------------------------------------------------------------//
         public async Task<IActionResult> Delete(string fileName)
         {
             if (string.IsNullOrEmpty(fileName))
@@ -127,7 +127,7 @@ namespace ST10439147_CLDV6212_POE.Controllers
 
             return RedirectToAction(nameof(Index));
         }
-
+        //--------------------------------------------------------------------------------------------------------------------------------------------------------------//
         private string GetFileType(string fileName)
         {
             var extension = Path.GetExtension(fileName).ToLower();
@@ -136,10 +136,11 @@ namespace ST10439147_CLDV6212_POE.Controllers
                 ".pdf" => "PDF",
                 ".docx" => "DOCX",
                 ".txt" => "TXT",
+                ".xlsx" => "XLSX",
                 _ => "Unknown"
             };
         }
-
+        //--------------------------------------------------------------------------------------------------------------------------------------------------------------//
         private string GetContentType(string fileName)
         {
             var extension = Path.GetExtension(fileName).ToLower();
@@ -148,6 +149,7 @@ namespace ST10439147_CLDV6212_POE.Controllers
                 ".pdf" => "application/pdf",
                 ".docx" => "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
                 ".txt" => "text/plain",
+                ".xlsx" => "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 _ => "application/octet-stream"
             };
         }

@@ -8,7 +8,7 @@ namespace ST10439147_CLDV6212_POE.Models
         public string CustomerId { get; set; }   // Matches Customer.RowKey
         public string ProductId { get; set; }    // Matches Product.RowKey
         public int Quantity { get; set; }
-        public decimal TotalPrice { get; set; }
+        public double TotalPrice { get; set; } // Changed to double for consistency with Order model
         public DateTime OrderDate { get; set; }
 
         // Optional: Status or action type (e.g. "NewOrder", "UpdateOrder")
