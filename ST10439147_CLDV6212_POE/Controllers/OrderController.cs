@@ -288,13 +288,13 @@ namespace ST10439147_CLDV6212_POE.Controllers
             }
         }
 
-        // Action to view queue messages (for debugging/monitoring)
         [HttpGet]
         public async Task<IActionResult> ViewQueueMessages(string queueName = "ordermsg")
         {
             try
             {
-                var messages = await _queueService.PeekQueueMessagesAsync(queueName, 50);
+                // Use Azure's maximum limit of 32 messages instead of 50
+                var messages = await _queueService.PeekQueueMessagesAsync(queueName, 32);
                 ViewBag.QueueName = queueName;
                 ViewBag.Messages = messages;
 
@@ -304,7 +304,9 @@ namespace ST10439147_CLDV6212_POE.Controllers
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error retrieving messages from queue: {QueueName}", queueName);
-                ViewBag.Error = $"Unable to retrieve messages from queue '{queueName}'.";
+                ViewBag.Error = $"Unable to retrieve messages from queue '{queueName}'. {ex.Message}";
+                ViewBag.QueueName = queueName;
+                ViewBag.Messages = new List<string>();
                 return View();
             }
         }

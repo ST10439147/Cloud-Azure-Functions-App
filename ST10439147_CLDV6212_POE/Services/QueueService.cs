@@ -13,6 +13,10 @@ namespace ST10439147_CLDV6212_POE.Services
         private readonly QueueServiceClient _queueServiceClient;
         private readonly ILogger<QueueService> _logger;
 
+        // Azure Storage Queue limits
+        private const int MAX_PEEK_MESSAGES = 32;
+        private const int MAX_RECEIVE_MESSAGES = 32;
+
         public QueueService(IConfiguration configuration, ILogger<QueueService> logger)
         {
             _connectionString = configuration["AzureStorage:ConnectionString"];
@@ -121,6 +125,9 @@ namespace ST10439147_CLDV6212_POE.Services
                 throw new ArgumentException("Queue name cannot be null or empty", nameof(queueName));
             }
 
+            // Enforce Azure Storage Queue limits
+            maxMessages = Math.Min(maxMessages, MAX_RECEIVE_MESSAGES);
+
             try
             {
                 var queueClient = _queueServiceClient.GetQueueClient(queueName);
@@ -162,17 +169,43 @@ namespace ST10439147_CLDV6212_POE.Services
                 throw new ArgumentException("Queue name cannot be null or empty", nameof(queueName));
             }
 
+            // Enforce Azure Storage Queue limits - this is the key fix!
+            maxMessages = Math.Min(maxMessages, MAX_PEEK_MESSAGES);
+
             try
             {
                 var queueClient = _queueServiceClient.GetQueueClient(queueName);
                 await queueClient.CreateIfNotExistsAsync();
 
                 var messages = new List<string>();
-                var peekedMessages = await queueClient.PeekMessagesAsync(maxMessages);
 
-                foreach (var message in peekedMessages.Value)
+                // For larger requests, we need to make multiple peek operations
+                int remainingMessages = maxMessages;
+                int requestedMessages = Math.Min(remainingMessages, MAX_PEEK_MESSAGES);
+
+                while (remainingMessages > 0 && requestedMessages > 0)
                 {
-                    messages.Add(message.MessageText);
+                    var peekedMessages = await queueClient.PeekMessagesAsync(requestedMessages);
+
+                    if (!peekedMessages.Value.Any())
+                    {
+                        // No more messages available
+                        break;
+                    }
+
+                    foreach (var message in peekedMessages.Value)
+                    {
+                        messages.Add(message.MessageText);
+                    }
+
+                    remainingMessages -= peekedMessages.Value.Length;
+                    requestedMessages = Math.Min(remainingMessages, MAX_PEEK_MESSAGES);
+
+                    // If we got fewer messages than requested, there are no more messages
+                    if (peekedMessages.Value.Length < Math.Min(maxMessages, MAX_PEEK_MESSAGES))
+                    {
+                        break;
+                    }
                 }
 
                 _logger.LogInformation("Peeked at {Count} messages from queue: {QueueName}", messages.Count, queueName);
@@ -303,9 +336,11 @@ namespace ST10439147_CLDV6212_POE.Services
                 _logger.LogError(ex, "Failed to update message visibility for queue: {QueueName}, MessageId: {MessageId}", queueName, messageId);
                 throw new InvalidOperationException($"Failed to update message visibility for queue '{queueName}': {ex.Message}", ex);
             }
-
         }
 
+        /// <summary>
+        /// Verifies if a message was sent to the queue by searching for specific text
+        /// </summary>
         public async Task<bool> VerifyMessageSentAsync(string queueName, string searchText, int timeoutSeconds = 30)
         {
             var endTime = DateTime.UtcNow.AddSeconds(timeoutSeconds);
@@ -314,7 +349,8 @@ namespace ST10439147_CLDV6212_POE.Services
             {
                 try
                 {
-                    var messages = await PeekQueueMessagesAsync(queueName, 50);
+                    // Use a smaller batch size for verification to avoid the limit issue
+                    var messages = await PeekQueueMessagesAsync(queueName, 32);
 
                     if (messages.Any(m => m.Contains(searchText)))
                     {
@@ -334,9 +370,34 @@ namespace ST10439147_CLDV6212_POE.Services
             _logger.LogWarning("Message verification timeout for queue {QueueName}: {SearchText}", queueName, searchText);
             return false;
         }
+
+        /// <summary>
+        /// Gets detailed queue information including properties and metadata
+        /// </summary>
+        public async Task<QueueProperties> GetQueuePropertiesAsync(string queueName)
+        {
+            if (string.IsNullOrEmpty(queueName))
+            {
+                throw new ArgumentException("Queue name cannot be null or empty", nameof(queueName));
+            }
+
+            try
+            {
+                var queueClient = _queueServiceClient.GetQueueClient(queueName);
+                await queueClient.CreateIfNotExistsAsync();
+
+                var properties = await queueClient.GetPropertiesAsync();
+                _logger.LogInformation("Retrieved properties for queue: {QueueName}", queueName);
+
+                return properties.Value;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to get properties for queue: {QueueName}", queueName);
+                throw new InvalidOperationException($"Failed to get properties for queue '{queueName}': {ex.Message}", ex);
+            }
+        }
     }
-
-
 
     /// <summary>
     /// Helper class to encapsulate queue message information

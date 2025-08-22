@@ -1,5 +1,285 @@
-﻿@*
-    For more information on enabling MVC for empty projects, visit https://go.microsoft.com/fwlink/?LinkID=397860
-*@
+﻿@model ST10439147_CLDV6212_POE.Models.Order
+
 @{
+    ViewData["Title"] = "Edit Order";
+    var customers = ViewBag.Customers as List<ST10439147_CLDV6212_POE.Models.Customer> ?? new List<ST10439147_CLDV6212_POE.Models.Customer>();
+    var products = ViewBag.Products as List<ST10439147_CLDV6212_POE.Models.Product> ?? new List<ST10439147_CLDV6212_POE.Models.Product>();
+}
+
+<div class="container mt-4">
+    <div class="row">
+        <div class="col-md-8 offset-md-2">
+            <div class="card shadow">
+                <div class="card-header bg-primary text-white">
+                    <h4 class="mb-0">
+                        <i class="fas fa-edit me-2"></i>Edit Order
+                    </h4>
+                </div>
+                <div class="card-body">
+                    @if (!string.IsNullOrEmpty(ViewBag.Error?.ToString()))
+                    {
+                        <div class="alert alert-danger" role="alert">
+                            <i class="fas fa-exclamation-triangle me-2"></i>@ViewBag.Error
+                        </div>
+                    }
+
+                    <form asp-action="Edit" method="post" class="needs-validation" novalidate>
+                        @Html.AntiForgeryToken()
+
+                        <!-- Hidden fields for entity tracking -->
+                        <input type="hidden" asp-for="PartitionKey" />
+                        <input type="hidden" asp-for="RowKey" />
+                        <input type="hidden" asp-for="OrderDate" />
+                        <input type="hidden" asp-for="ETag" />
+                        <input type="hidden" asp-for="Timestamp" />
+
+                        <!-- Order Information Display -->
+                        <div class="row mb-3">
+                            <div class="col-md-6">
+                                <div class="info-box">
+                                    <small class="text-muted">Order ID</small>
+                                    <div class="fw-bold">@Model.RowKey</div>
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="info-box">
+                                    <small class="text-muted">Order Date</small>
+                                    <div class="fw-bold">@Model.OrderDate.ToString("yyyy-MM-dd HH:mm")</div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Customer Selection -->
+                        <div class="form-floating mb-3">
+                            <select asp-for="CustomerId" class="form-select" required>
+                                <option value="">Select a customer...</option>
+                                @foreach (var customer in customers)
+                                {
+                                    <option value="@customer.RowKey" selected="@(customer.RowKey == Model.CustomerId)">
+                                        @customer.FirstName @customer.LastName (@customer.Email)
+                                    </option>
+                                }
+                            </select>
+                            <label asp-for="CustomerId" class="form-label">
+                                <i class="fas fa-user me-1"></i>Customer
+                            </label>
+                            <span asp-validation-for="CustomerId" class="text-danger"></span>
+                            <div class="invalid-feedback">
+                                Please select a customer.
+                            </div>
+                        </div>
+
+                        <!-- Product Selection -->
+                        <div class="form-floating mb-3">
+                            <select asp-for="ProductId" class="form-select" id="productSelect" required onchange="updatePrice()">
+                                <option value="">Select a product...</option>
+                                @foreach (var product in products)
+                                {
+                                    <option value="@product.RowKey"
+                                            data-price="@product.Price"
+                                            data-stock="@product.StockQuantity"
+                                            selected="@(product.RowKey == Model.ProductId)">
+                                        @product.Name - @product.Price.ToString("C", new System.Globalization.CultureInfo("en-ZA")) (Stock: @product.StockQuantity)
+                                    </option>
+                                }
+                            </select>
+                            <label asp-for="ProductId" class="form-label">
+                                <i class="fas fa-box me-1"></i>Product
+                            </label>
+                            <span asp-validation-for="ProductId" class="text-danger"></span>
+                            <div class="invalid-feedback">
+                                Please select a product.
+                            </div>
+                        </div>
+
+                        <!-- Quantity Input -->
+                        <div class="form-floating mb-3">
+                            <input asp-for="Quantity"
+                                   class="form-control"
+                                   type="number"
+                                   min="1"
+                                   required
+                                   onchange="updatePrice()"
+                                   placeholder="Enter quantity" />
+                            <label asp-for="Quantity" class="form-label">
+                                <i class="fas fa-sort-numeric-up me-1"></i>Quantity
+                            </label>
+                            <span asp-validation-for="Quantity" class="text-danger"></span>
+                            <div class="invalid-feedback">
+                                Please enter a valid quantity (minimum 1).
+                            </div>
+                            <div class="form-text" id="stockWarning" style="display: none;">
+                                <i class="fas fa-exclamation-triangle text-warning"></i>
+                                <span id="stockMessage"></span>
+                            </div>
+                        </div>
+
+                        <!-- Total Price Input -->
+                        <div class="form-floating mb-3">
+                            <input asp-for="TotalPrice"
+                                   class="form-control"
+                                   type="number"
+                                   step="0.01"
+                                   min="0.01"
+                                   required
+                                   placeholder="Total price" />
+                            <label asp-for="TotalPrice" class="form-label">
+                                <i class="fas fa-dollar-sign me-1"></i>Total Price
+                            </label>
+                            <span asp-validation-for="TotalPrice" class="text-danger"></span>
+                            <div class="invalid-feedback">
+                                Please enter a valid total price.
+                            </div>
+                        </div>
+
+                        <!-- Status Selection -->
+                        <div class="form-floating mb-4">
+                            <select asp-for="Status" class="form-select" required>
+                                <option value="Pending" selected="@(Model.Status == "Pending")">Pending</option>
+                                <option value="Processing" selected="@(Model.Status == "Processing")">Processing</option>
+                                <option value="Shipped" selected="@(Model.Status == "Shipped")">Shipped</option>
+                                <option value="Completed" selected="@(Model.Status == "Completed")">Completed</option>
+                                <option value="Cancelled" selected="@(Model.Status == "Cancelled")">Cancelled</option>
+                            </select>
+                            <label asp-for="Status" class="form-label">
+                                <i class="fas fa-info-circle me-1"></i>Status
+                            </label>
+                            <span asp-validation-for="Status" class="text-danger"></span>
+                        </div>
+
+                        <!-- Action Buttons -->
+                        <div class="d-flex justify-content-between">
+                            <a asp-action="Index" class="btn btn-secondary">
+                                <i class="fas fa-arrow-left me-1"></i>Back to List
+                            </a>
+                            <div>
+                                <a asp-action="Details"
+                                   asp-route-partitionKey="@Model.PartitionKey"
+                                   asp-route-rowKey="@Model.RowKey"
+                                   class="btn btn-info me-2">
+                                    <i class="fas fa-eye me-1"></i>View Details
+                                </a>
+                                <button type="submit" class="btn btn-primary">
+                                    <i class="fas fa-save me-1"></i>Update Order
+                                </button>
+                            </div>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<style>
+    .info-box {
+        padding: 0.75rem;
+        background-color: #f8f9fa;
+        border-radius: 0.375rem;
+        border-left: 4px solid #0d6efd;
+    }
+
+    .form-floating > .form-select,
+    .form-floating > .form-control {
+        height: calc(3.5rem + 2px);
+        line-height: 1.25;
+    }
+
+    .card {
+        border: none;
+        border-radius: 0.75rem;
+    }
+
+    .card-header {
+        border-radius: 0.75rem 0.75rem 0 0 !important;
+        padding: 1.5rem;
+    }
+
+    .card-body {
+        padding: 2rem;
+    }
+
+    .btn {
+        padding: 0.75rem 1.5rem;
+        font-weight: 500;
+        border-radius: 0.5rem;
+    }
+
+    .form-text {
+        margin-top: 0.5rem;
+        font-size: 0.875rem;
+    }
+
+    .needs-validation .form-control:invalid,
+    .needs-validation .form-select:invalid {
+        border-color: #dc3545;
+        box-shadow: 0 0 0 0.2rem rgba(220, 53, 69, 0.25);
+    }
+
+    .needs-validation .form-control:valid,
+    .needs-validation .form-select:valid {
+        border-color: #198754;
+        box-shadow: 0 0 0 0.2rem rgba(25, 135, 84, 0.25);
+    }
+</style>
+
+<script>
+    // Auto-calculate total price and validate stock
+    function updatePrice() {
+        const productSelect = document.getElementById('productSelect');
+        const quantityInput = document.querySelector('input[name="Quantity"]');
+        const totalPriceInput = document.querySelector('input[name="TotalPrice"]');
+        const stockWarning = document.getElementById('stockWarning');
+        const stockMessage = document.getElementById('stockMessage');
+
+        const selectedOption = productSelect.options[productSelect.selectedIndex];
+        const price = parseFloat(selectedOption.getAttribute('data-price')) || 0;
+        const stock = parseInt(selectedOption.getAttribute('data-stock')) || 0;
+        const quantity = parseInt(quantityInput.value) || 0;
+
+        // Calculate total price
+        if (price > 0 && quantity > 0) {
+            const total = (price * quantity).toFixed(2);
+            totalPriceInput.value = total;
+        }
+
+        // Check stock availability
+        if (quantity > 0 && stock > 0) {
+            if (quantity > stock) {
+                stockWarning.style.display = 'block';
+                stockMessage.textContent = `Only ${stock} items available in stock`;
+                quantityInput.setCustomValidity(`Only ${stock} items available`);
+            } else {
+                stockWarning.style.display = 'none';
+                quantityInput.setCustomValidity('');
+            }
+        } else {
+            stockWarning.style.display = 'none';
+            quantityInput.setCustomValidity('');
+        }
+    }
+
+    // Initialize price calculation on page load
+    document.addEventListener('DOMContentLoaded', function() {
+        updatePrice();
+
+        // Bootstrap form validation
+        const forms = document.querySelectorAll('.needs-validation');
+        Array.from(forms).forEach(form => {
+            form.addEventListener('submit', event => {
+                if (!form.checkValidity()) {
+                    event.preventDefault();
+                    event.stopPropagation();
+                }
+                form.classList.add('was-validated');
+            }, false);
+        });
+    });
+</script>
+
+@section Scripts {
+    @{
+        await Html.RenderPartialAsync("_ValidationScriptsPartial");
+    }
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
 }

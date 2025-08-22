@@ -1,5 +1,367 @@
-﻿@*
-    For more information on enabling MVC for empty projects, visit https://go.microsoft.com/fwlink/?LinkID=397860
-*@
+﻿@model ST10439147_CLDV6212_POE.Models.Order
+
 @{
+    ViewData["Title"] = "Delete Order";
+    var customer = ViewBag.Customer as ST10439147_CLDV6212_POE.Models.Customer;
+    var product = ViewBag.Product as ST10439147_CLDV6212_POE.Models.Product;
+}
+
+<div class="container mt-4">
+    <div class="row">
+        <div class="col-md-8 offset-md-2">
+            <div class="card shadow border-danger">
+                <div class="card-header bg-danger text-white">
+                    <h4 class="mb-0">
+                        <i class="fas fa-trash-alt me-2"></i>Delete Order
+                    </h4>
+                </div>
+                <div class="card-body">
+                    <div class="alert alert-warning" role="alert">
+                        <i class="fas fa-exclamation-triangle me-2"></i>
+                        <strong>Warning!</strong> This action cannot be undone. Are you sure you want to delete this order?
+                    </div>
+
+                    <!-- Order Details Display -->
+                    <div class="row mb-4">
+                        <div class="col-md-12">
+                            <h5 class="text-danger mb-3">Order Information</h5>
+
+                            <div class="row">
+                                <div class="col-md-6 mb-3">
+                                    <div class="info-card">
+                                        <div class="info-label">
+                                            <i class="fas fa-hashtag text-primary me-2"></i>Order ID
+                                        </div>
+                                        <div class="info-value">@Model.RowKey</div>
+                                    </div>
+                                </div>
+
+                                <div class="col-md-6 mb-3">
+                                    <div class="info-card">
+                                        <div class="info-label">
+                                            <i class="fas fa-calendar text-primary me-2"></i>Order Date
+                                        </div>
+                                        <div class="info-value">@Model.OrderDate.ToString("MMMM dd, yyyy 'at' HH:mm")</div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="row">
+                                <div class="col-md-6 mb-3">
+                                    <div class="info-card">
+                                        <div class="info-label">
+                                            <i class="fas fa-info-circle text-primary me-2"></i>Status
+                                        </div>
+                                        <div class="info-value">
+                                            @{
+                                                string statusClass = Model.Status switch
+                                                {
+                                                    "Pending" => "badge bg-warning text-dark",
+                                                    "Processing" => "badge bg-info",
+                                                    "Shipped" => "badge bg-primary",
+                                                    "Completed" => "badge bg-success",
+                                                    "Cancelled" => "badge bg-danger",
+                                                    _ => "badge bg-secondary"
+                                                };
+                                            }
+                                            <span class="@statusClass">@Model.Status</span>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div class="col-md-6 mb-3">
+                                    <div class="info-card">
+                                        <div class="info-label">
+                                            <i class="fas fa-dollar-sign text-primary me-2"></i>Total Price
+                                        </div>
+                                        <div class="info-value fw-bold text-success">$@Model.TotalPrice.ToString("F2")</div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Customer Information -->
+                    @if (customer != null)
+                    {
+                        <div class="mb-4">
+                            <h5 class="text-danger mb-3">Customer Details</h5>
+                            <div class="customer-info-card">
+                                <div class="row">
+                                    <div class="col-md-6">
+                                        <div class="info-item">
+                                            <strong><i class="fas fa-user text-primary me-1"></i>Name:</strong>
+                                            @customer.FirstName @customer.LastName
+                                        </div>
+                                    </div>
+                                    <div class="col-md-6">
+                                        <div class="info-item">
+                                            <strong><i class="fas fa-envelope text-primary me-1"></i>Email:</strong>
+                                            @customer.Email
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="row">
+                                    <div class="col-md-6">
+                                        <div class="info-item">
+                                            <strong><i class="fas fa-phone text-primary me-1"></i>Phone:</strong>
+                                            @customer.PhoneNumber
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    }
+
+                    <!-- Product Information -->
+                    @if (product != null)
+                    {
+                        <div class="mb-4">
+                            <h5 class="text-danger mb-3">Product Details</h5>
+                            <div class="product-info-card">
+                                <div class="row align-items-center">
+                                    <div class="col-md-8">
+                                        <div class="info-item">
+                                            <strong><i class="fas fa-box text-primary me-1"></i>Product:</strong>
+                                            @product.Name
+                                        </div>
+                                        @if (!string.IsNullOrEmpty(product.Description))
+                                        {
+                                            <div class="info-item mt-2">
+                                                <strong><i class="fas fa-align-left text-primary me-1"></i>Description:</strong>
+                                                @product.Description
+                                            </div>
+                                        }
+                                        <div class="row mt-2">
+                                            <div class="col-sm-6">
+                                                <div class="info-item">
+                                                    <strong><i class="fas fa-tag text-primary me-1"></i>Unit Price:</strong>
+                                                    $@product.Price.ToString("F2")
+                                                </div>
+                                            </div>
+                                            <div class="col-sm-6">
+                                                <div class="info-item">
+                                                    <strong><i class="fas fa-sort-numeric-up text-primary me-1"></i>Quantity Ordered:</strong>
+                                                    @Model.Quantity
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    @if (!string.IsNullOrEmpty(product.ImageUrl))
+                                    {
+                                        <div class="col-md-4 text-center">
+                                            <img src="@product.ImageUrl"
+                                                 alt="@product.Name"
+                                                 class="img-thumbnail product-image"
+                                                 style="max-width: 120px; max-height: 120px;" />
+                                        </div>
+                                    }
+                                </div>
+                            </div>
+                        </div>
+                    }
+
+                    <!-- Order Summary -->
+                    <div class="order-summary-card mb-4">
+                        <h6 class="mb-3"><i class="fas fa-calculator text-primary me-2"></i>Order Summary</h6>
+                        <div class="row">
+                            <div class="col-md-6">
+                                <div class="summary-line">
+                                    <span>Unit Price:</span>
+                                    <span>$@(product?.Price.ToString("F2") ?? "0.00")</span>
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="summary-line">
+                                    <span>Quantity:</span>
+                                    <span>@Model.Quantity</span>
+                                </div>
+                            </div>
+                        </div>
+                        <hr>
+                        <div class="summary-line total-line">
+                            <strong>Total Amount: $@Model.TotalPrice.ToString("F2")</strong>
+                        </div>
+                    </div>
+
+                    <!-- Action Buttons -->
+                    <div class="d-flex justify-content-between align-items-center">
+                        <a asp-action="Index" class="btn btn-secondary">
+                            <i class="fas fa-arrow-left me-1"></i>Back to List
+                        </a>
+
+                        <div>
+                            <a asp-action="Details"
+                               asp-route-partitionKey="@Model.PartitionKey"
+                               asp-route-rowKey="@Model.RowKey"
+                               class="btn btn-info me-2">
+                                <i class="fas fa-eye me-1"></i>View Details
+                            </a>
+
+                            <button type="button" class="btn btn-danger" data-bs-toggle="modal" data-bs-target="#confirmDeleteModal">
+                                <i class="fas fa-trash-alt me-1"></i>Delete Order
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Confirmation Modal -->
+<div class="modal fade" id="confirmDeleteModal" tabindex="-1" aria-labelledby="confirmDeleteModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header bg-danger text-white">
+                <h5 class="modal-title" id="confirmDeleteModalLabel">
+                    <i class="fas fa-exclamation-triangle me-2"></i>Confirm Deletion
+                </h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <div class="text-center">
+                    <i class="fas fa-trash-alt text-danger mb-3" style="font-size: 3rem;"></i>
+                    <h6>Are you absolutely sure?</h6>
+                    <p class="text-muted">
+                        This will permanently delete order <strong>@Model.RowKey</strong> and cannot be undone.
+                        @if (Model.Status == "Processing" || Model.Status == "Shipped")
+                        {
+                            <br>
+                        
+                            <strong class="text-warning">Warning: This order is currently @Model.Status.ToLower()!</strong>
+                        }
+                    </p>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">
+                    <i class="fas fa-times me-1"></i>Cancel
+                </button>
+                <form asp-action="Delete" method="post" style="display: inline;">
+                    @Html.AntiForgeryToken()
+                    <input type="hidden" name="partitionKey" value="@Model.PartitionKey" />
+                    <input type="hidden" name="rowKey" value="@Model.RowKey" />
+                    <button type="submit" class="btn btn-danger">
+                        <i class="fas fa-trash-alt me-1"></i>Yes, Delete Order
+                    </button>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+
+<style>
+    .info-card {
+        background-color: #f8f9fa;
+        padding: 1rem;
+        border-radius: 0.5rem;
+        border-left: 4px solid #0d6efd;
+        height: 100%;
+    }
+
+    .info-label {
+        font-size: 0.875rem;
+        color: #6c757d;
+        font-weight: 500;
+        margin-bottom: 0.25rem;
+    }
+
+    .info-value {
+        font-size: 1rem;
+        font-weight: 600;
+        color: #212529;
+    }
+
+    .customer-info-card,
+    .product-info-card {
+        background-color: #f8f9fa;
+        padding: 1.5rem;
+        border-radius: 0.5rem;
+        border: 1px solid #e9ecef;
+    }
+
+    .info-item {
+        margin-bottom: 0.75rem;
+    }
+
+        .info-item:last-child {
+            margin-bottom: 0;
+        }
+
+    .order-summary-card {
+        background-color: #fff3cd;
+        padding: 1.5rem;
+        border-radius: 0.5rem;
+        border: 1px solid #ffeaa7;
+    }
+
+    .summary-line {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 0.5rem;
+    }
+
+        .summary-line:last-child {
+            margin-bottom: 0;
+        }
+
+    .total-line {
+        font-size: 1.1rem;
+        color: #28a745;
+    }
+
+    .product-image {
+        border-radius: 0.5rem;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+    }
+
+    .card {
+        border: none;
+        border-radius: 0.75rem;
+    }
+
+    .card-header {
+        border-radius: 0.75rem 0.75rem 0 0 !important;
+        padding: 1.5rem;
+    }
+
+    .card-body {
+        padding: 2rem;
+    }
+
+    .btn {
+        padding: 0.75rem 1.5rem;
+        font-weight: 500;
+        border-radius: 0.5rem;
+    }
+
+    .modal-content {
+        border-radius: 0.75rem;
+        border: none;
+        box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+    }
+
+    .modal-header {
+        border-radius: 0.75rem 0.75rem 0 0 !important;
+    }
+
+    .badge {
+        font-size: 0.875rem;
+        padding: 0.5rem 0.75rem;
+    }
+
+    
+    .d-flex.justify-content-between > div {
+        display: flex;
+        gap: 0.5rem;
+        flex-wrap: wrap;
+    }
+
+    }
+</style>
+
+@section Scripts {
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
 }
