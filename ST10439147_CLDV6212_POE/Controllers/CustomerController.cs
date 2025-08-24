@@ -1,4 +1,16 @@
-﻿using Microsoft.AspNetCore.Mvc;
+﻿// StudentNumber: ST10439147
+// StudentName: Dillon Rinkwest
+// CourseCode: CLDV6212
+// POE Part: 1
+
+//References:
+// ClaudAI - https://claude.ai/
+// ChatGPT - https://chat.openai.com/
+// W3schools - https://www.w3schools.com/
+// IIEVC School of Computer Science Youtube channel for Azure services setup and use https://www.youtube.com/@VCSOCS
+// AzureApp project done in class with lecturer
+
+using Microsoft.AspNetCore.Mvc;
 using ST10439147_CLDV6212_POE.Models;
 using ST10439147_CLDV6212_POE.Services;
 
@@ -8,12 +20,13 @@ namespace ST10439147_CLDV6212_POE.Controllers
     {
         private readonly TableService _tableService;
 
-        public CustomerController(TableService tableService)
+        public CustomerController(TableService tableService)// Constructor with TableService injection
         {
-            _tableService = tableService;
+            _tableService = tableService; // Dependency Injection of TableService
         }
 
-        // GET: Customer
+        // this is the main page that lists all customers
+        // method to display all customers
         public async Task<IActionResult> Index()
         {
             try
@@ -31,6 +44,9 @@ namespace ST10439147_CLDV6212_POE.Controllers
         }
 
         // GET: Customer/Details/5
+        // method to display details of a specific customer
+        // This method is not very necessary but included for completeness, hence no link to it in the views
+        /*
         public async Task<IActionResult> Details(string partitionKey, string rowKey)
         {
             if (string.IsNullOrEmpty(partitionKey) || string.IsNullOrEmpty(rowKey))
@@ -53,7 +69,7 @@ namespace ST10439147_CLDV6212_POE.Controllers
                 ViewBag.Error = "Unable to load customer details. Please try again.";
                 return RedirectToAction(nameof(Index));
             }
-        }
+         }*/
 
         // GET: Customer/Create
         [HttpGet]

@@ -2,7 +2,167 @@
     ViewData["Title"] = "Home Page";
 }
 
-<div class="text-center">
-    <h1 class="display-4">Welcome</h1>
-    <p>Learn about <a href="https://learn.microsoft.com/aspnet/core">building Web apps with ASP.NET Core</a>.</p>
+<div class="hero-section text-center mb-5">
+    <h1 class="display-3 fw-bold text-primary mb-3">Welcome to ABC Retail the Dashboard</h1>
+    <p class="lead text-muted">Manage your business operations with ease</p>
 </div>
+
+<div class="container">
+    <div class="row g-4">
+        <!-- Customers Tile -->
+        <div class="col-md-6 col-lg-3">
+            <a href="@Url.Action("Index", "Customer")" class="text-decoration-none">
+                <div class="tile-card h-100 p-4 text-center">
+                    <div class="tile-icon mb-3">
+                        <i class="fas fa-users fa-3x text-primary"></i>
+                    </div>
+                    <h4 class="tile-title mb-2">Customers</h4>
+                    <p class="tile-description text-muted">Manage customer information and relationships</p>
+                    <div class="tile-arrow mt-3">
+                        <i class="fas fa-arrow-right"></i>
+                    </div>
+                </div>
+            </a>
+        </div>
+
+        <!-- Products Tile -->
+        <div class="col-md-6 col-lg-3">
+            <a href="@Url.Action("Index", "Product")" class="text-decoration-none">
+                <div class="tile-card h-100 p-4 text-center">
+                    <div class="tile-icon mb-3">
+                        <i class="fas fa-box fa-3x text-success"></i>
+                    </div>
+                    <h4 class="tile-title mb-2">Products</h4>
+                    <p class="tile-description text-muted">Browse and manage your product catalog</p>
+                    <div class="tile-arrow mt-3">
+                        <i class="fas fa-arrow-right"></i>
+                    </div>
+                </div>
+            </a>
+        </div>
+
+        <!-- Orders Tile -->
+        <div class="col-md-6 col-lg-3">
+            <a href="@Url.Action("Index", "Order")" class="text-decoration-none">
+                <div class="tile-card h-100 p-4 text-center">
+                    <div class="tile-icon mb-3">
+                        <i class="fas fa-shopping-cart fa-3x text-warning"></i>
+                    </div>
+                    <h4 class="tile-title mb-2">Orders</h4>
+                    <p class="tile-description text-muted">Track and manage customer orders</p>
+                    <div class="tile-arrow mt-3">
+                        <i class="fas fa-arrow-right"></i>
+                    </div>
+                </div>
+            </a>
+        </div>
+
+        <!-- Contracts Tile -->
+        <div class="col-md-6 col-lg-3">
+            <a href="@Url.Action("Index", "FileUpload")" class="text-decoration-none">
+                <div class="tile-card h-100 p-4 text-center">
+                    <div class="tile-icon mb-3">
+                        <i class="fas fa-file-contract fa-3x text-info"></i>
+                    </div>
+                    <h4 class="tile-title mb-2">Contracts</h4>
+                    <p class="tile-description text-muted">Upload and manage contract documents</p>
+                    <div class="tile-arrow mt-3">
+                        <i class="fas fa-arrow-right"></i>
+                    </div>
+                </div>
+            </a>
+        </div>
+    </div>
+</div>
+
+<style>
+    .hero-section {
+        background: linear-gradient(135deg, darkgreen 0%, black 100%);
+        color: white;
+        padding: 4rem 2rem;
+        margin: -1rem -15px 2rem -15px;
+        border-radius: 0 0 20px 20px;
+    }
+
+    .tile-card {
+        background: white;
+        border: 1px solid #e9ecef;
+        border-radius: 15px;
+        transition: all 0.3s ease;
+        box-shadow: 0 2px 10px rgba(0,0,0,0.08);
+        cursor: pointer;
+        position: relative;
+        overflow: hidden;
+    }
+
+        .tile-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 8px 25px rgba(0,0,0,0.15);
+            border-color: blue;
+        }
+
+        .tile-card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 4px;
+            background: linear-gradient(90deg, #007bff, #28a745, darkblue);
+            transform: scaleX(0);
+            transition: transform 0.3s ease;
+        }
+
+        .tile-card:hover::before {
+            transform: scaleX(1);
+        }
+
+    .tile-icon {
+        transition: transform 0.3s ease;
+    }
+
+    .tile-card:hover .tile-icon {
+        transform: scale(1.1);
+    }
+
+    .tile-title {
+        font-weight: 600;
+        color: #333;
+    }
+
+    .tile-description {
+        font-size: 0.9rem;
+        line-height: 1.4;
+    }
+
+    .tile-arrow {
+        opacity: 0;
+        transition: opacity 0.3s ease;
+    }
+
+    .tile-card:hover .tile-arrow {
+        opacity: 1;
+    }
+
+    .stats-section {
+        background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+        border: 1px solid #dee2e6;
+    }
+
+    .stat-item h4 {
+        font-size: 2rem;
+        font-weight: bold;
+        margin-bottom: 0.5rem;
+    }
+
+    .stat-item p {
+        margin-bottom: 0;
+        font-size: 0.9rem;
+    }
+
+    .tile-card {
+        margin-bottom: 1rem;
+    }
+
+    }
+</style>
