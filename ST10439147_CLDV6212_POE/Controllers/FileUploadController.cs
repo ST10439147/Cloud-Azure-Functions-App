@@ -114,11 +114,16 @@ namespace ST10439147_CLDV6212_POE.Controllers
 
             try
             {
-                // Use AzureService's UploadFileAsync and GetAllFilesAsync signatures for reference.
-                // Since DeleteFileAsync does not exist, you need to implement it in AzureService.
-                // For now, you can remove or comment out the call to _storageService.DeleteFileAsync(fileName)
-                // and show an error message.
-                TempData["Error"] = "Delete functionality is not implemented in AzureService.";
+                var deleted = await _storageService.DeleteFileAsync(fileName);
+
+                if (deleted)
+                {
+                    TempData["Success"] = $"File {fileName} deleted successfully!";
+                }
+                else
+                {
+                    TempData["Error"] = $"File {fileName} not found or could not be deleted.";
+                }
             }
             catch (Exception ex)
             {
