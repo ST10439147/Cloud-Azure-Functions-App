@@ -1,4 +1,16 @@
-﻿using Azure.Storage.Blobs;
+﻿// StudentNumber: ST10439147
+// StudentName: Dillon Rinkwest
+// CourseCode: CLDV6212
+// POE Part: 1
+
+//References:
+// ClaudAI - https://claude.ai/
+// ChatGPT - https://chat.openai.com/
+// W3schools - https://www.w3schools.com/
+// IIEVC School of Computer Science Youtube channel for Azure services setup and use https://www.youtube.com/@VCSOCS
+// AzureApp project done in class with lecturer
+
+using Azure.Storage.Blobs;
 using Azure.Storage.Blobs.Models;
 
 namespace ST10439147_CLDV6212_POE.Services

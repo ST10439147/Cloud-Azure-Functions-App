@@ -1,4 +1,16 @@
-﻿using Microsoft.AspNetCore.Mvc;
+﻿// StudentNumber: ST10439147
+// StudentName: Dillon Rinkwest
+// CourseCode: CLDV6212
+// POE Part: 1
+
+//References:
+// ClaudAI - https://claude.ai/
+// ChatGPT - https://chat.openai.com/
+// W3schools - https://www.w3schools.com/
+// IIEVC School of Computer Science Youtube channel for Azure services setup and use https://www.youtube.com/@VCSOCS
+// AzureApp project done in class with lecturer
+
+using Microsoft.AspNetCore.Mvc;
 using ST10439147_CLDV6212_POE.Models;
 using ST10439147_CLDV6212_POE.Services;
 
@@ -6,18 +18,24 @@ namespace ST10439147_CLDV6212_POE.Controllers
 {
     public class ProductController : Controller
     {
-        private readonly TableService _tableService;
-        private readonly BlobService _blobService;
-        private readonly ILogger<ProductController> _logger;
-
+        
+        private readonly TableService _tableService;// Access to table storage operations
+        private readonly BlobService _blobService;// Access to blob storage operations
+        private readonly ILogger<ProductController> _logger;// Logger for tracking and debugging
+        //--------------------------------------------------------------------------------------------------------------------------------------------------------------//
+        // Constructor with dependency injection for services and logger
+        // Ensures services are available for use in controller methods
         public ProductController(TableService tableService, BlobService blobService, ILogger<ProductController> logger)
         {
             _tableService = tableService ?? throw new ArgumentNullException(nameof(tableService));
             _blobService = blobService ?? throw new ArgumentNullException(nameof(blobService));
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         }
-
+        //--------------------------------------------------------------------------------------------------------------------------------------------------------------//
         // GET: Product
+        // Retrieves and displays all products
+        // Handles errors nicely and logs issues
+        // Accessible via /Product/Index or /Product
         public async Task<IActionResult> Index()
         {
             try
@@ -33,15 +51,23 @@ namespace ST10439147_CLDV6212_POE.Controllers
                 return View(new List<Product>());
             }
         }
-
+        //--------------------------------------------------------------------------------------------------------------------------------------------------------------//
         // GET: Product/Create
         [HttpGet]
         public IActionResult Create()
         {
             return View();
         }
-
+        //--------------------------------------------------------------------------------------------------------------------------------------------------------------//
         // POST: Product/Create
+        // Handles product creation with image upload
+        // Validates input and manages errors
+        // Redirects to Index on success
+        // This method is used to create a new product entry in the system.
+        // It accepts a Product model and an optional image file for upload.
+        // If the model is valid, it uploads the image (if provided), saves the product to table storage,
+        // and redirects to the Index view with a success message.
+        // If there are validation errors or exceptions, it logs the issues and redisplays the form with error messages.
         [HttpPost]
         [ValidateAntiForgeryToken]
         public async Task<IActionResult> Create(Product product, IFormFile imageFile)
@@ -113,7 +139,7 @@ namespace ST10439147_CLDV6212_POE.Controllers
             // If we got this far, something failed, redisplay form
             return View(product);
         }
-
+        //--------------------------------------------------------------------------------------------------------------------------------------------------------------//
         // GET: Product/Details/5
         public async Task<IActionResult> Details(string id)
         {
@@ -142,7 +168,7 @@ namespace ST10439147_CLDV6212_POE.Controllers
                 return View();
             }
         }
-
+        //--------------------------------------------------------------------------------------------------------------------------------------------------------------//
         // GET: Product/Edit/5
         [HttpGet]
         public async Task<IActionResult> Edit(string id)
@@ -172,7 +198,7 @@ namespace ST10439147_CLDV6212_POE.Controllers
                 return RedirectToAction(nameof(Index));
             }
         }
-
+        //--------------------------------------------------------------------------------------------------------------------------------------------------------------//
         // POST: Product/Edit/5
         [HttpPost]
         [ValidateAntiForgeryToken]
@@ -275,7 +301,7 @@ namespace ST10439147_CLDV6212_POE.Controllers
 
             return View(product);
         }
-
+        //--------------------------------------------------------------------------------------------------------------------------------------------------------------//
         // GET: Product/Delete/5
         [HttpGet]
         public async Task<IActionResult> Delete(string id)
@@ -305,7 +331,7 @@ namespace ST10439147_CLDV6212_POE.Controllers
                 return RedirectToAction(nameof(Index));
             }
         }
-
+        //--------------------------------------------------------------------------------------------------------------------------------------------------------------//
         // POST: Product/Delete/5
         [HttpPost, ActionName("Delete")]
         [ValidateAntiForgeryToken]
@@ -359,7 +385,7 @@ namespace ST10439147_CLDV6212_POE.Controllers
                 return RedirectToAction(nameof(Index));
             }
         }
-
+        //--------------------------------------------------------------------------------------------------------------------------------------------------------------//
         #region Helper Methods
 
         private bool IsValidImageFile(IFormFile imageFile, out string errorMessage)

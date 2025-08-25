@@ -139,7 +139,7 @@
                     }
                     else
                     {
-                        <!-- Bulk Actions 
+                        <!-- Bulk Actions -->
                         <div class="row mb-3">
                             <div class="col-md-6 text-end">
                                 <div class="btn-group btn-group-sm" role="group">
@@ -151,7 +151,7 @@
                                     </button>
                                 </div>
                             </div>
-                        </div>-->
+                        </div>
 
                         <!-- Messages List -->
                         <div class="row">
@@ -166,6 +166,21 @@
                                 var messageType = "text";
                                 var messageData = new Dictionary<string, object>();
 
+                                if (isJsonMessage)
+                                {
+                                    try
+                                    {
+                                        // This is a simple JSON detection - in a real app you might use Newtonsoft.Json
+                                        messageType = "json";
+                                        // For display purposes
+                                        formattedMessage = FormatJsonString(message);
+                                    }
+                                    catch
+                                    {
+                                        messageType = "text";
+                                    }
+                                }
+
                                 <div class="col-12 mb-3">
                                     <div class="card border-start border-@queueColor border-4 message-card">
                                         <div class="card-header bg-light">
@@ -179,6 +194,10 @@
                                                         <h6 class="mb-0 me-3">
                                                             <i class="fas fa-envelope me-2"></i>Message #@(i + 1)
                                                         </h6>
+                                                        @if (messageType == "json")
+                                                        {
+                                                            <span class="badge bg-success me-2">JSON</span>
+                                                        }
                                                         @if (queueName == "ordermsg")
                                                         {
                                                             <span class="badge bg-primary">Order Data</span>
@@ -231,7 +250,7 @@
                                                                         <dt class="col-sm-4">Quantity:</dt>
                                                                         <dd class="col-sm-8"><span class="extract-json" data-field="quantity">N/A</span></dd>
                                                                         <dt class="col-sm-4">Total Price:</dt>
-                                                                        <dd class="col-sm-8">R<span class="extract-json" data-field="totalPrice">N/A</span></dd>
+                                                                        <dd class="col-sm-8">R <span class="extract-json" data-field="totalPrice">N/A</span></dd>
                                                                         <dt class="col-sm-4">Action:</dt>
                                                                         <dd class="col-sm-8"><span class="badge bg-info extract-json" data-field="action">N/A</span></dd>
                                                                     </dl>
@@ -278,6 +297,11 @@
                                                             <button class="btn btn-outline-secondary" onclick="copyMessage(@i)">
                                                                 <i class="fas fa-copy me-1"></i>Copy
                                                             </button>
+                                                            <form method="post" asp-action="ProcessOrderMessage" class="d-inline">
+                                                                <input name="messageId" value="msg-@i" type="hidden">
+                                                                <input name="popReceipt" value="receipt-@i" type="hidden">
+                                                                <input name="queueName" value="@queueName" type="hidden">
+                                                            </form>
                                                         </div>
                                                     </div>
                                                 </div>
@@ -351,7 +375,7 @@
         z-index: 1050;
     }
 
-    
+
     .btn-group-sm .btn {
         padding: 0.25rem 0.5rem;
         font-size: 0.75rem;
@@ -377,8 +401,8 @@
         let autoRefreshActive = false;
 
         @{
-                // Create a JavaScript array of messages for client-side processing
-                var jsMessages = System.Text.Json.JsonSerializer.Serialize(messages);
+                    // Create a JavaScript array of messages for client-side processing
+                    var jsMessages = System.Text.Json.JsonSerializer.Serialize(messages);
         }
 
         const messages = @Html.Raw(jsMessages);
@@ -600,3 +624,20 @@
     </script>
 }
 
+@functions {
+    private static string FormatJsonString(string json)
+    {
+        try
+        {
+            // Simple JSON formatting for display
+            return System.Text.Json.JsonSerializer.Serialize(
+                System.Text.Json.JsonSerializer.Deserialize<object>(json),
+                new System.Text.Json.JsonSerializerOptions { WriteIndented = true }
+            );
+        }
+        catch
+        {
+            return json;
+        }
+    }
+}
