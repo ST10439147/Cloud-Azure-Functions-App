@@ -114,14 +114,14 @@ namespace ST10439147_CLDV6212_POE.Controllers
                         // Set a default placeholder if no image is provided
                         product.ImageUrl = "/images/no-image.png"; // or leave as null if you prefer
                     }
-
+                    // Insert product into table storage
                     await _tableService.InsertProductAsync(product);
                     _logger.LogInformation("Product created successfully: {ProductName} with ID: {ProductId}", product.Name, product.RowKey);
-
+                    // Redirect to Index with success message
                     TempData["Success"] = "Product added successfully!";
                     return RedirectToAction(nameof(Index));
                 }
-                catch (Exception ex)
+                catch (Exception ex)// Catch any exceptions during product creation
                 {
                     _logger.LogError(ex, "Error creating product: {ProductName}", product.Name);
                     ModelState.AddModelError("", "Unable to save product. Please try again.");
@@ -143,23 +143,23 @@ namespace ST10439147_CLDV6212_POE.Controllers
         // GET: Product/Details/5
         public async Task<IActionResult> Details(string id)
         {
-            if (string.IsNullOrEmpty(id))
+            if (string.IsNullOrEmpty(id))// If ID is null or empty
             {
-                _logger.LogWarning("Product Details called with null or empty ID");
+                _logger.LogWarning("Product Details called with null or empty ID");// Log warning
                 return NotFound();
             }
 
             try
             {
-                var product = await _tableService.GetProductByIdAsync("Product", id);
+                var product = await _tableService.GetProductByIdAsync("Product", id);// Retrieve the product by ID
 
-                if (product == null)
+                if (product == null)// If product not found
                 {
                     _logger.LogWarning("Product not found: {ProductId}", id);
                     return NotFound();
                 }
 
-                return View(product);
+                return View(product);// Pass product to view
             }
             catch (Exception ex)
             {
@@ -170,6 +170,14 @@ namespace ST10439147_CLDV6212_POE.Controllers
         }
         //--------------------------------------------------------------------------------------------------------------------------------------------------------------//
         // GET: Product/Edit/5
+        // Displays the edit form for a specific product
+        // Handles errors and logs issues
+        // This method retrieves the product to be edited and displays it in a form.
+        // It handles cases where the product ID is null or the product does not exist,
+        // logging warnings and errors as appropriate.
+        // If the product is found, it passes the product to the view for editing.
+        // If an error occurs during retrieval, it logs the error and redirects to the Index view with an error message.
+        // It expects the product ID as a parameter to identify which product to edit.
         [HttpGet]
         public async Task<IActionResult> Edit(string id)
         {
@@ -200,16 +208,26 @@ namespace ST10439147_CLDV6212_POE.Controllers
         }
         //--------------------------------------------------------------------------------------------------------------------------------------------------------------//
         // POST: Product/Edit/5
+        // Handles product updates with optional image replacement
+        // Validates input and manages errors
+        // Redirects to Index on success
+        // This method is used to update an existing product entry in the system.
+        // It accepts a Product model and an optional new image file for upload.
+        // It ensures the product ID in the URL matches the product's RowKey.
+        // If the model is valid, it uploads the new image (if provided), updates the product in table storage,
+        // and redirects to the Index view with a success message.
+        // If there are validation errors or exceptions, it logs the issues and redisplays the form with error messages.
+        // The method also preserves the existing image URL if no new image is uploaded.
         [HttpPost]
         [ValidateAntiForgeryToken]
         public async Task<IActionResult> Edit(string id, Product product, IFormFile imageFile)
         {
-            if (string.IsNullOrEmpty(id))
+            if (string.IsNullOrEmpty(id))// If ID is null or empty
             {
                 return NotFound();
             }
 
-            if (id != product.RowKey)
+            if (id != product.RowKey)// Ensure the ID in the URL matches the product's RowKey
             {
                 _logger.LogWarning("ID mismatch in Edit: URL ID {UrlId}, Product RowKey {RowKey}", id, product.RowKey);
                 return BadRequest("ID mismatch");
@@ -230,7 +248,7 @@ namespace ST10439147_CLDV6212_POE.Controllers
                         return NotFound();
                     }
 
-                    // Preserve the ETag for optimistic concurrency
+                    // Preserve the ETag
                     product.ETag = existingProduct.ETag;
 
                     // Handle new image upload
@@ -278,11 +296,11 @@ namespace ST10439147_CLDV6212_POE.Controllers
                         product.ImageUrl = existingProduct.ImageUrl;
                     }
 
-                    await _tableService.UpdateProductAsync(product);
+                    await _tableService.UpdateProductAsync(product);// Update product in table storage
                     _logger.LogInformation("Product updated successfully: {ProductId}", id);
 
                     TempData["Success"] = "Product updated successfully!";
-                    return RedirectToAction(nameof(Index));
+                    return RedirectToAction(nameof(Index));// Redirect to Index on success
                 }
                 catch (Exception ex)
                 {
@@ -303,10 +321,18 @@ namespace ST10439147_CLDV6212_POE.Controllers
         }
         //--------------------------------------------------------------------------------------------------------------------------------------------------------------//
         // GET: Product/Delete/5
+        // Displays confirmation page for product deletion
+        // Handles errors and logs issues
+        // Accessible via /Product/Delete/5
+        // This method retrieves the product to be deleted and displays a confirmation view.
+        // It handles cases where the product ID is null or the product does not exist,
+        // logging warnings and errors.
+        // If the product is found, it passes the product to the view for user confirmation.
+        // If an error occurs during retrieval, it logs the error and redirects to the Index view with an error message.
         [HttpGet]
         public async Task<IActionResult> Delete(string id)
         {
-            if (string.IsNullOrEmpty(id))
+            if (string.IsNullOrEmpty(id))// If ID is null or empty
             {
                 _logger.LogWarning("Product Delete called with null or empty ID");
                 return NotFound();
@@ -314,15 +340,15 @@ namespace ST10439147_CLDV6212_POE.Controllers
 
             try
             {
-                var product = await _tableService.GetProductByIdAsync("Product", id);
+                var product = await _tableService.GetProductByIdAsync("Product", id);// Retrieve the product by ID
 
-                if (product == null)
+                if (product == null)// If product not found
                 {
                     _logger.LogWarning("Product not found for delete: {ProductId}", id);
                     return NotFound();
                 }
 
-                return View(product);
+                return View(product);// Pass product to view for confirmation
             }
             catch (Exception ex)
             {
@@ -333,6 +359,20 @@ namespace ST10439147_CLDV6212_POE.Controllers
         }
         //--------------------------------------------------------------------------------------------------------------------------------------------------------------//
         // POST: Product/Delete/5
+        // Confirms and processes product deletion
+        // Deletes associated image if applicable
+        // Handles errors and logs actions
+        // Redirects to Index after deletion
+        // This method handles the confirmation and processing of product deletion.
+        // It deletes the product from table storage and also removes the associated image from blob storage if it exists.
+        // It manages errors gracefully and logs all significant actions for auditing and debugging purposes.
+        // On successful deletion, it redirects to the Index view with a success message.
+        // If the product is not found or an error occurs, it logs the issue and redirects with an error message.
+        // The method is decorated with [HttpPost] and [ValidateAntiForgeryToken] to ensure secure form submission.
+        // The ActionName attribute allows it to be called "Delete" in the view, matching the GET method.
+        // It expects the product ID as a parameter to identify which product to delete.
+        // It checks for null or empty IDs and handles them appropriately.
+        // It uses the TableService to retrieve and delete the product and the BlobService to manage image deletion.
         [HttpPost, ActionName("Delete")]
         [ValidateAntiForgeryToken]
         public async Task<IActionResult> DeleteConfirmed(string id)
@@ -344,7 +384,7 @@ namespace ST10439147_CLDV6212_POE.Controllers
 
             try
             {
-                var product = await _tableService.GetProductByIdAsync("Product", id);
+                var product = await _tableService.GetProductByIdAsync("Product", id);// Retrieve the product to get image URL
 
                 if (product != null)
                 {
@@ -367,7 +407,7 @@ namespace ST10439147_CLDV6212_POE.Controllers
                     // Delete the product from table storage
                     await _tableService.DeleteProductAsync("Product", id);
 
-                    _logger.LogInformation("Product deleted successfully: {ProductId}", id);
+                    _logger.LogInformation("Product deleted successfully: {ProductId}", id);// Log success
                     TempData["Success"] = "Product deleted successfully!";
                 }
                 else
@@ -376,7 +416,7 @@ namespace ST10439147_CLDV6212_POE.Controllers
                     TempData["Error"] = "Product not found.";
                 }
 
-                return RedirectToAction(nameof(Index));
+                return RedirectToAction(nameof(Index));// Redirect to Index after deletion
             }
             catch (Exception ex)
             {
@@ -386,8 +426,15 @@ namespace ST10439147_CLDV6212_POE.Controllers
             }
         }
         //--------------------------------------------------------------------------------------------------------------------------------------------------------------//
+        // Using region to organize helper methods
         #region Helper Methods
 
+        // Validates the uploaded image file for correct type and size
+        // Returns true if valid, false otherwise with an error message
+        // Supports common image formats and limits size to 5MB
+        // This method checks if the provided IFormFile is a valid image file.
+        // It verifies the file's existence, extension, size, and content type.
+        // If the file is invalid, it sets an appropriate error message.
         private bool IsValidImageFile(IFormFile imageFile, out string errorMessage)
         {
             errorMessage = string.Empty;
@@ -403,7 +450,7 @@ namespace ST10439147_CLDV6212_POE.Controllers
             var allowedExtensions = new[] { ".jpg", ".jpeg", ".png", ".gif", ".bmp", ".webp" };
             var extension = Path.GetExtension(imageFile.FileName)?.ToLowerInvariant();
 
-            if (string.IsNullOrEmpty(extension) || !allowedExtensions.Contains(extension))
+            if (string.IsNullOrEmpty(extension) || !allowedExtensions.Contains(extension))// If extension is not allowed
             {
                 errorMessage = "Please upload a valid image file (jpg, jpeg, png, gif, bmp, webp).";
                 return false;
@@ -411,7 +458,7 @@ namespace ST10439147_CLDV6212_POE.Controllers
 
             // Check file size (limit to 5MB)
             const int maxFileSize = 5 * 1024 * 1024; // 5MB
-            if (imageFile.Length > maxFileSize)
+            if (imageFile.Length > maxFileSize)// If file size exceeds limit
             {
                 errorMessage = "Image file size cannot exceed 5MB.";
                 return false;
@@ -427,7 +474,7 @@ namespace ST10439147_CLDV6212_POE.Controllers
                 "image/webp"
             };
 
-            if (!allowedContentTypes.Contains(imageFile.ContentType?.ToLowerInvariant()))
+            if (!allowedContentTypes.Contains(imageFile.ContentType?.ToLowerInvariant()))// If content type is not allowed
             {
                 errorMessage = "Invalid image file type.";
                 return false;
@@ -436,6 +483,7 @@ namespace ST10439147_CLDV6212_POE.Controllers
             return true;
         }
 
-        #endregion
+        #endregion // end of the region
     }
 }
+//-----------------------------------------------------DDDDooooo END OF FILE oooooDDDD-----------------------------------------------------//

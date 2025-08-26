@@ -11,7 +11,8 @@ namespace ST10439147_CLDV6212_POE.Models
         public double TotalPrice { get; set; } // Changed to double for consistency with Order model
         public DateTime OrderDate { get; set; }
 
-        // Optional: Status or action type (e.g. "NewOrder", "UpdateOrder")
+        // Status or action type (e.g. "NewOrder", "UpdateOrder")
         public string Action { get; set; } = "NewOrder";
     }
 }
+//-----------------------------------------------------DDDDooooo END OF FILE oooooDDDD-----------------------------------------------------//

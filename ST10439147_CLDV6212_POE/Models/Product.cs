@@ -37,8 +37,9 @@ namespace ST10439147_CLDV6212_POE.Models
         [Display(Name = "Image")]
         public string? ImageUrl { get; set; }
 
-        // Audit fields - these should not be validated by user input
+        // Audit fields
         public DateTimeOffset? Timestamp { get; set; }
         public ETag ETag { get; set; }
     }
 }
+//-----------------------------------------------------DDDDooooo END OF FILE oooooDDDD-----------------------------------------------------//

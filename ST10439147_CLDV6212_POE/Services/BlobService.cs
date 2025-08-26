@@ -17,18 +17,23 @@ namespace ST10439147_CLDV6212_POE.Services
 {
     public class BlobService
     {
-        private readonly BlobServiceClient _blobServiceClient;
-        private readonly BlobContainerClient _containerClient;
-        private readonly ILogger<BlobService> _logger;
-        private const string ContainerName = "products";
-
+        private readonly BlobServiceClient _blobServiceClient;// Client for interacting with the Blob service
+        private readonly BlobContainerClient _containerClient;// Client for interacting with the blob container
+        private readonly ILogger<BlobService> _logger;// Logger for logging information and errors
+        private const string ContainerName = "products";// Name of the blob container
+        //--------------------------------------------------------------------------------------------------------------------------------------------------------------//
+        // Constructor to initialize BlobService with configuration and logger
+        // Sets up the BlobServiceClient and BlobContainerClient
+        // Creates the container if it does not exist
+        // Throws InvalidOperationException if configuration is missing or initialization fails
+        // Logs relevant information and errors
         public BlobService(IConfiguration configuration, ILogger<BlobService> logger)
         {
-            _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+            _logger = logger ?? throw new ArgumentNullException(nameof(logger));// Ensure logger is not null
 
-            var connectionString = configuration["AzureStorage:ConnectionString"];
+            var connectionString = configuration["AzureStorage:ConnectionString"];// Get connection string from configuration
 
-            if (string.IsNullOrEmpty(connectionString))
+            if (string.IsNullOrEmpty(connectionString))// Check if connection string is null or empty
             {
                 _logger.LogError("Azure Storage connection string is not configured");
                 throw new InvalidOperationException("Azure Storage connection string is not configured.");
@@ -42,31 +47,39 @@ namespace ST10439147_CLDV6212_POE.Services
                 // Create container if it doesn't exist
                 var createResponse = _containerClient.CreateIfNotExistsAsync(PublicAccessType.Blob).GetAwaiter().GetResult();
 
-                if (createResponse != null)
+                if (createResponse != null)// If the container was created
                 {
-                    _logger.LogInformation("Created blob container: {ContainerName}", ContainerName);
+                    _logger.LogInformation("Created blob container: {ContainerName}", ContainerName);// Log that the container was created
                 }
                 else
                 {
-                    _logger.LogInformation("Using existing blob container: {ContainerName}", ContainerName);
+                    _logger.LogInformation("Using existing blob container: {ContainerName}", ContainerName);// Log that the existing container is being used
                 }
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Failed to initialize Azure Blob Storage");
+                _logger.LogError(ex, "Failed to initialize Azure Blob Storage");// Log an error if initialization fails
                 throw new InvalidOperationException($"Failed to initialize Azure Blob Storage: {ex.Message}", ex);
             }
         }
-
+        //--------------------------------------------------------------------------------------------------------------------------------------------------------------//
+        // Uploads an image file to Azure Blob Storage
+        // Validates the input file
+        // Generates a unique filename to avoid conflicts
+        // Sets appropriate content type for the blob
+        // Tracks upload progress and logs it
+        // Returns the URL of the uploaded image
+        // Throws InvalidOperationException if upload fails
+        // Logs relevant information and errors
         public async Task<string> UploadImageAsync(IFormFile imageFile)
         {
-            if (imageFile == null || imageFile.Length == 0)
+            if (imageFile == null || imageFile.Length == 0)// Check if the image file is null or empty
             {
-                _logger.LogError("Image file is null or empty");
-                throw new ArgumentException("Image file is null or empty");
+                _logger.LogError("Image file is null or empty");// Log an error if the image file is invalid
+                throw new ArgumentException("Image file is null or empty");// Throw an exception if the image file is invalid
             }
 
-            try
+            try// Try to upload the image file
             {
                 // Generate unique filename
                 var fileExtension = Path.GetExtension(imageFile.FileName);
@@ -85,19 +98,20 @@ namespace ST10439147_CLDV6212_POE.Services
                 // Upload with progress tracking
                 using (var stream = imageFile.OpenReadStream())
                 {
-                    var uploadOptions = new BlobUploadOptions
+                    var uploadOptions = new BlobUploadOptions// Options for uploading the blob
                     {
-                        HttpHeaders = blobHttpHeaders,
+                        HttpHeaders = blobHttpHeaders,// Set the content type
                         Conditions = null, // No conditions for new upload
+                        // Progress handler to track upload progress
                         ProgressHandler = new Progress<long>(bytesUploaded =>
                         {
                             _logger.LogDebug("Uploaded {BytesUploaded} of {TotalBytes} bytes", bytesUploaded, imageFile.Length);
                         })
                     };
 
-                    var response = await blobClient.UploadAsync(stream, uploadOptions);
+                    var response = await blobClient.UploadAsync(stream, uploadOptions);// Upload the blob
 
-                    if (response != null)
+                    if (response != null)// If the upload was successful
                     {
                         var imageUrl = blobClient.Uri.ToString();
                         _logger.LogInformation("Successfully uploaded image: {FileName} to URL: {ImageUrl}", fileName, imageUrl);
@@ -115,72 +129,87 @@ namespace ST10439147_CLDV6212_POE.Services
                 throw new InvalidOperationException($"Failed to upload image: {ex.Message}", ex);
             }
         }
-
+        //--------------------------------------------------------------------------------------------------------------------------------------------------------------//
+        // Deletes an image from Azure Blob Storage given its URL
+        // Validates the input URL
+        // Extracts the filename from the URL
+        // Returns true if deletion was successful, false if the image was not found
+        // Throws InvalidOperationException if deletion fails
+        // Logs relevant information and errors
+        // Tracks deletion progress and logs it
         public async Task<bool> DeleteImageAsync(string imageUrl)
         {
             try
             {
-                if (string.IsNullOrEmpty(imageUrl))
+                if (string.IsNullOrEmpty(imageUrl))// Check if the image URL is null or empty
                 {
-                    _logger.LogWarning("Image URL is null or empty, nothing to delete");
+                    _logger.LogWarning("Image URL is null or empty, nothing to delete");// Log a warning if the image URL is invalid
                     return false;
                 }
 
-                var uri = new Uri(imageUrl);
-                var fileName = Path.GetFileName(uri.LocalPath);
+                var uri = new Uri(imageUrl);// Parse the image URL
+                var fileName = Path.GetFileName(uri.LocalPath);// Extract the filename from the URL
 
-                if (string.IsNullOrEmpty(fileName))
+                if (string.IsNullOrEmpty(fileName))// Check if the filename extraction was successful
                 {
-                    _logger.LogWarning("Could not extract filename from URL: {ImageUrl}", imageUrl);
+                    _logger.LogWarning("Could not extract filename from URL: {ImageUrl}", imageUrl);// Log a warning if the filename could not be extracted
                     return false;
                 }
 
-                _logger.LogInformation("Deleting image: {FileName} from URL: {ImageUrl}", fileName, imageUrl);
+                _logger.LogInformation("Deleting image: {FileName} from URL: {ImageUrl}", fileName, imageUrl);// Log the deletion attempt
 
-                var blobClient = _containerClient.GetBlobClient(fileName);
-                var response = await blobClient.DeleteIfExistsAsync();
+                var blobClient = _containerClient.GetBlobClient(fileName);// Get the blob client for the specified filename
+                var response = await blobClient.DeleteIfExistsAsync();// Attempt to delete the blob if it exists
 
-                if (response.Value)
+                if (response.Value)// If the blob was successfully deleted
                 {
-                    _logger.LogInformation("Successfully deleted image: {FileName}", fileName);
+                    _logger.LogInformation("Successfully deleted image: {FileName}", fileName);// Log the successful deletion
                     return true;
                 }
                 else
                 {
-                    _logger.LogWarning("Image not found for deletion: {FileName}", fileName);
+                    _logger.LogWarning("Image not found for deletion: {FileName}", fileName);// Log a warning if the image was not found
                     return false;
                 }
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Failed to delete image from URL: {ImageUrl}", imageUrl);
-                throw new InvalidOperationException($"Failed to delete image: {ex.Message}", ex);
+                _logger.LogError(ex, "Failed to delete image from URL: {ImageUrl}", imageUrl);// Log an error if deletion fails
+                throw new InvalidOperationException($"Failed to delete image: {ex.Message}", ex);// Throw an exception if deletion fails
             }
         }
-
+        //--------------------------------------------------------------------------------------------------------------------------------------------------------------//
+        // Checks if an image exists in Azure Blob Storage given its URL
+        // Validates the input URL
+        // Extracts the filename from the URL
+        // Returns true if the image exists, false otherwise
+        // Logs relevant information and errors
+        // Catches exceptions and logs errors
+        // Returns false if an error occurs
         public async Task<bool> ImageExistsAsync(string imageUrl)
         {
             try
             {
-                if (string.IsNullOrEmpty(imageUrl))
+                if (string.IsNullOrEmpty(imageUrl))// Check if the image URL is null or empty
                     return false;
 
                 var uri = new Uri(imageUrl);
                 var fileName = Path.GetFileName(uri.LocalPath);
 
-                if (string.IsNullOrEmpty(fileName))
+                if (string.IsNullOrEmpty(fileName))// Check if the filename extraction was successful
                     return false;
 
-                var blobClient = _containerClient.GetBlobClient(fileName);
-                var response = await blobClient.ExistsAsync();
+                var blobClient = _containerClient.GetBlobClient(fileName);//Get the blob client for the specified filename
+                var response = await blobClient.ExistsAsync();// Check if the blob exists
 
-                return response.Value;
+                return response.Value;// Return true if the blob exists, false otherwise
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error checking if image exists: {ImageUrl}", imageUrl);
+                _logger.LogError(ex, "Error checking if image exists: {ImageUrl}", imageUrl);// Log an error if an exception occurs
                 return false;
             }
         }
     }
 }
+//-----------------------------------------------------DDDDooooo END OF FILE oooooDDDD-----------------------------------------------------//
