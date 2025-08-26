@@ -708,6 +708,40 @@ namespace ST10439147_CLDV6212_POE.Controllers
                 return RedirectToAction(nameof(Index));
             }
         }
+
+        //--------------------------------------------------------------------------------------------------------------------------------------------------------------//
+        // POST: Order/ClearQueue
+        // This action handles clearing all messages from a specified queue.
+        // It validates the queue name, attempts to clear the queue using the QueueService,
+        // and returns a JSON response indicating success or failure.
+        // This method is called via AJAX from the Queue Status view.
+        [HttpPost]
+        [ValidateAntiForgeryToken]
+        public async Task<IActionResult> ClearQueue(string queueName)
+        {
+            if (string.IsNullOrEmpty(queueName))// Validate input
+            {
+                _logger.LogWarning("ClearQueue called with null or empty queue name");// Log warning
+                return Json(new { success = false, message = "Queue name is required." });// Return JSON error
+            }
+
+            try
+            {
+                _logger.LogInformation("Attempting to clear queue: {QueueName}", queueName);// Log the attempt
+
+                // Clear the specified queue
+                await _queueService.ClearQueueAsync(queueName);
+
+                _logger.LogInformation("Queue cleared successfully: {QueueName}", queueName);
+
+                return Json(new { success = true, message = $"Queue '{queueName}' cleared successfully." });// Return JSON success
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error clearing queue: {QueueName}", queueName);
+                return Json(new { success = false, message = $"Failed to clear queue: {ex.Message}" });
+            }
+        }
     }
 }
 //-----------------------------------------------------DDDDooooo END OF FILE oooooDDDD-----------------------------------------------------//

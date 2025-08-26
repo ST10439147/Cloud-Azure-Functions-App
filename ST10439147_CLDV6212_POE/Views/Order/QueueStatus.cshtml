@@ -5,6 +5,10 @@
     var error = ViewBag.Error as string;
 }
 
+<form id="hiddenForm" style="display: none;">
+    @Html.AntiForgeryToken()
+</form>
+
 <div class="container mt-4">
     <div class="row">
         <div class="col-12">
@@ -345,7 +349,7 @@
                 let current = 0;
                 const increment = target / 30; // 30 steps
 
-                const timer = setInterval(() => {
+                const timer = setInterval(() => { // Update every 50ms
                     current += increment;
                     if (current >= target) {
                         current = target;
@@ -359,13 +363,13 @@
             setInterval(updateTimestamp, 1000);
         });
 
-        function updateTimestamp() {
+        function updateTimestamp() { // Update the "Last Updated" timestamp
             const now = new Date();
             const timeString = now.toLocaleTimeString('en-US', { hour12: false });
             document.getElementById('lastUpdated').textContent = timeString;
         }
 
-        function refreshStatus() {
+        function refreshStatus() { // Simple page reload for refresh
             location.reload();
         }
 
@@ -379,7 +383,7 @@
                         'RequestVerificationToken': document.querySelector('input[name="__RequestVerificationToken"]').value
                     }
                 })
-                .then(response => {
+                .then(response => { // Handle response
                     if (response.ok) {
                         location.reload();
                     } else {

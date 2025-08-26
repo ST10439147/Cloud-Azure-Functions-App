@@ -146,26 +146,9 @@
                                 var message = messages[i];
                                 var messageId = $"message-{i}";
 
-                                // Try to parse as JSON for better formatting
+                                // Try to parse as JSON for better data extraction (but won't display formatted JSON)
                                 var isJsonMessage = message.TrimStart().StartsWith("{");
-                                var formattedMessage = message;
-                                var messageType = "text";
                                 var messageData = new Dictionary<string, object>();
-
-                                if (isJsonMessage)
-                                {
-                                    try
-                                    {
-                                        // This is a simple JSON detection - in a real app you might use Newtonsoft.Json
-                                        messageType = "json";
-                                        // For display purposes
-                                        formattedMessage = FormatJsonString(message);
-                                    }
-                                    catch
-                                    {
-                                        messageType = "text";
-                                    }
-                                }
 
                                 <div class="col-12 mb-3">
                                     <div class="card border-start border-@queueColor border-4 message-card">
@@ -180,10 +163,6 @@
                                                         <h6 class="mb-0 me-3">
                                                             <i class="fas fa-envelope me-2"></i>Message #@(i + 1)
                                                         </h6>
-                                                        @if (messageType == "json")
-                                                        {
-                                                            <span class="badge bg-success me-2">JSON</span>
-                                                        }
                                                         @if (queueName == "ordermsg")
                                                         {
                                                             <span class="badge bg-primary">Order Data</span>
@@ -207,68 +186,85 @@
                                         </div>
                                         <div class="collapse" id="@messageId">
                                             <div class="card-body">
-                                                @if (messageType == "json")
-                                                {
-                                                    <!-- JSON Message Display -->
-                                                    <div class="mb-3">
-                                                        <h6><i class="fas fa-code me-2"></i>Message Content (JSON)</h6>
-                                                        <pre class="bg-dark text-light p-3 rounded"><code class="language-json">@formattedMessage</code></pre>
+                                                <!-- Message Content Display (no JSON formatting) -->
+                                                <div class="mb-3">
+                                                    <h6><i class="fas fa-file-alt me-2"></i>Message Content</h6>
+                                                    <div class="p-3 bg-light rounded border">
+                                                        <pre class="mb-0" style="white-space: pre-wrap; word-wrap: break-word;">@message</pre>
                                                     </div>
+                                                </div>
 
-                                                    @if (queueName == "ordermsg")
-                                                    {
-                                                        <!-- Parse and display order data if possible -->
-                                                        <div class="mb-3">
-                                                            <h6><i class="fas fa-info-circle me-2"></i>Order Information</h6>
-                                                            <div class="row">
-                                                                <div class="col-md-6">
-                                                                    <dl class="row">
-                                                                        <dt class="col-sm-4">Order ID:</dt>
-                                                                        <dd class="col-sm-8"><span class="extract-json" data-field="orderId">N/A</span></dd>
-                                                                        <dt class="col-sm-4">Customer:</dt>
-                                                                        <dd class="col-sm-8"><span class="extract-json" data-field="customerId">N/A</span></dd>
-                                                                        <dt class="col-sm-4">Product:</dt>
-                                                                        <dd class="col-sm-8"><span class="extract-json" data-field="productId">N/A</span></dd>
-                                                                    </dl>
-                                                                </div>
-                                                                <div class="col-md-6">
-                                                                    <dl class="row">
-                                                                        <dt class="col-sm-4">Quantity:</dt>
-                                                                        <dd class="col-sm-8"><span class="extract-json" data-field="quantity">N/A</span></dd>
-                                                                        <dt class="col-sm-4">Total Price:</dt>
-                                                                        <dd class="col-sm-8">R <span class="extract-json" data-field="totalPrice">N/A</span></dd>
-                                                                        <dt class="col-sm-4">Action:</dt>
-                                                                        <dd class="col-sm-8"><span class="badge bg-info extract-json" data-field="action">N/A</span></dd>
-                                                                    </dl>
-                                                                </div>
+                                                @if (queueName == "ordermsg" && isJsonMessage)
+                                                {
+                                                    <!-- Parse and display order data if it's JSON -->
+                                                    <div class="mb-3">
+                                                        <h6><i class="fas fa-info-circle me-2"></i>Order Information</h6>
+                                                        <div class="row">
+                                                            <div class="col-md-6">
+                                                                <dl class="row">
+                                                                    <dt class="col-sm-4">Order ID:</dt>
+                                                                    <dd class="col-sm-8"><span class="extract-json" data-field="orderId">N/A</span></dd>
+                                                                    <dt class="col-sm-4">Customer:</dt>
+                                                                    <dd class="col-sm-8"><span class="extract-json" data-field="customerId">N/A</span></dd>
+                                                                    <dt class="col-sm-4">Product:</dt>
+                                                                    <dd class="col-sm-8"><span class="extract-json" data-field="productId">N/A</span></dd>
+                                                                </dl>
+                                                            </div>
+                                                            <div class="col-md-6">
+                                                                <dl class="row">
+                                                                    <dt class="col-sm-4">Quantity:</dt>
+                                                                    <dd class="col-sm-8"><span class="extract-json" data-field="quantity">N/A</span></dd>
+                                                                    <dt class="col-sm-4">Total Price:</dt>
+                                                                    <dd class="col-sm-8">R <span class="extract-json" data-field="totalPrice">N/A</span></dd>
+                                                                    <dt class="col-sm-4">Action:</dt>
+                                                                    <dd class="col-sm-8"><span class="badge bg-info extract-json" data-field="action">N/A</span></dd>
+                                                                </dl>
                                                             </div>
                                                         </div>
-                                                    }
+                                                    </div>
                                                 }
-                                                else
+                                                else if (queueName == "inventory-msg" && isJsonMessage)
                                                 {
-                                                    <!-- Text Message Display -->
+                                                    <!-- Parse and display inventory data if it's JSON -->
                                                     <div class="mb-3">
-                                                        <h6><i class="fas fa-file-alt me-2"></i>Message Content</h6>
-                                                        <div class="p-3 bg-light rounded border">
-                                                            <pre class="mb-0" style="white-space: pre-wrap; word-wrap: break-word;">@message</pre>
-                                                        </div>
-                                                    </div>
-
-                                                    @if (queueName == "inventory-msg")
-                                                    {
-                                                        <!-- Parse inventory message information -->
-                                                        <div class="mb-3">
-                                                            <h6><i class="fas fa-boxes me-2"></i>Inventory Information</h6>
-                                                            <div class="alert alert-info">
-                                                                <small>
-                                                                    <i class="fas fa-info-circle me-1"></i>
-                                                                    This appears to be an inventory update message.
-                                                                    Check the content above for order ID, product ID, and quantity information.
-                                                                </small>
+                                                        <h6><i class="fas fa-boxes me-2"></i>Inventory Information</h6>
+                                                        <div class="row">
+                                                            <div class="col-md-6">
+                                                                <dl class="row">
+                                                                    <dt class="col-sm-4">Order ID:</dt>
+                                                                    <dd class="col-sm-8"><span class="extract-json" data-field="orderId">N/A</span></dd>
+                                                                    <dt class="col-sm-4">Product ID:</dt>
+                                                                    <dd class="col-sm-8"><span class="extract-json" data-field="productId">N/A</span></dd>
+                                                                    <dt class="col-sm-4">SKU:</dt>
+                                                                    <dd class="col-sm-8"><span class="extract-json" data-field="sku">N/A</span></dd>
+                                                                </dl>
+                                                            </div>
+                                                            <div class="col-md-6">
+                                                                <dl class="row">
+                                                                    <dt class="col-sm-4">Quantity:</dt>
+                                                                    <dd class="col-sm-8"><span class="extract-json" data-field="quantity">N/A</span></dd>
+                                                                    <dt class="col-sm-4">Operation:</dt>
+                                                                    <dd class="col-sm-8"><span class="badge bg-warning text-dark extract-json" data-field="operation">N/A</span></dd>
+                                                                    <dt class="col-sm-4">Timestamp:</dt>
+                                                                    <dd class="col-sm-8"><span class="extract-json" data-field="timestamp">N/A</span></dd>
+                                                                </dl>
                                                             </div>
                                                         </div>
-                                                    }
+                                                    </div>
+                                                }
+                                                else if (queueName == "inventory-msg")
+                                                {
+                                                    <!-- Non-JSON inventory message -->
+                                                    <div class="mb-3">
+                                                        <h6><i class="fas fa-boxes me-2"></i>Inventory Information</h6>
+                                                        <div class="alert alert-info">
+                                                            <small>
+                                                                <i class="fas fa-info-circle me-1"></i>
+                                                                This appears to be an inventory update message.
+                                                                Check the content above for order ID, product ID, and quantity information.
+                                                            </small>
+                                                        </div>
+                                                    </div>
                                                 }
 
                                                 <!-- Message Actions -->
@@ -325,7 +321,7 @@
 <!-- Hidden textarea for copying messages -->
 <textarea id="copyHelper" style="position: fixed; top: -1000px; left: -1000px;"></textarea>
 
-<style><!--css generated by chatGPT -->
+<style>
     .message-card {
         transition: all 0.3s ease;
         margin-bottom: 0.5rem;
@@ -338,11 +334,6 @@
 
     .border-4 {
         border-width: 4px !important;
-    }
-
-    pre code {
-        font-size: 0.85rem;
-        line-height: 1.4;
     }
 
     .card-header {
@@ -361,7 +352,6 @@
         z-index: 1050;
     }
 
-
     .btn-group-sm .btn {
         padding: 0.25rem 0.5rem;
         font-size: 0.75rem;
@@ -374,8 +364,8 @@
     pre {
         font-size: 0.75rem;
         overflow-x: auto;
-    }
-
+        white-space: pre-wrap;
+        word-wrap: break-word;
     }
 </style>
 
@@ -389,8 +379,8 @@
         let autoRefreshActive = false;
 
         @{
-            // Serialize C# messages list to JavaScript array for client-side processing
-            var jsMessages = System.Text.Json.JsonSerializer.Serialize(messages);
+                // Serialize C# messages list to JavaScript array for client-side processing
+                var jsMessages = System.Text.Json.JsonSerializer.Serialize(messages);
         }
 
         // JavaScript array of queue messages
@@ -487,7 +477,6 @@
             }
         }
 
-
         // Copies the content of a message to the clipboard and shows feedback
         function copyMessage(index) {
             const message = messages[index];
@@ -509,25 +498,22 @@
                 btn.classList.add('btn-outline-secondary');
             }, 2000);
         }
-    </script>
-}
 
-@functions {
-    // Formats a JSON string with indentation for display
-    private static string FormatJsonString(string json)
-    {
-        try
-        {
-            // Deserialize and re-serialize with indentation
-            return System.Text.Json.JsonSerializer.Serialize(
-                System.Text.Json.JsonSerializer.Deserialize<object>(json),
-                new System.Text.Json.JsonSerializerOptions { WriteIndented = true }
-            );
+        // Placeholder functions for missing handlers
+        function setupCheckboxHandlers() {
+            // Add checkbox handling logic if needed
         }
-        catch
-        {
-            // If not valid JSON, return original string
-            return json;
+
+        function setupExpandCollapseHandlers() {
+            // Add expand/collapse handling logic if needed
         }
-    }
+
+        function showAutoRefreshIndicator() {
+            // Add auto-refresh indicator if needed
+        }
+
+        function hideAutoRefreshIndicator() {
+            // Hide auto-refresh indicator if needed
+        }
+    </script>
 }
