@@ -297,6 +297,8 @@ namespace ST10439147_CLDV6212_POE.Services
         // Throws InvalidOperationException on failure
         // This method is useful for removing messages that have been processed
         // Ensures that only the intended message is deleted using both ID and pop receipt
+        //--------------------------------------------------------------//
+        // Only going to be implemented in Part 2
         public async Task DeleteMessageAsync(string queueName, string messageId, string popReceipt)
         {
             if (string.IsNullOrEmpty(queueName))
@@ -364,6 +366,7 @@ namespace ST10439147_CLDV6212_POE.Services
         }
         //--------------------------------------------------------------------------------------------------------------------------------------------------------------//
         // Clears all messages from a queue
+        // Only going to be implemented in Part 2
         public async Task ClearQueueAsync(string queueName)
         {
             if (string.IsNullOrEmpty(queueName))// Validate queue name
