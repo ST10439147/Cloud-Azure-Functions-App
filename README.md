@@ -17,6 +17,25 @@ With the use of Azure's storage account features: Tables service, Queue Service,
 - FontAwesome
 - Entity Framework Core
 - Azure Queue Storage
+- Azure Table Storage
+- Azure Blob Storage
+- Azure FileShare Storage
+
+  ## NuGet Packages Used
+
+This project uses the following NuGet packages:
+
+- **Azure.Storage.Queues**  
+  Provides client libraries for working with Azure Queue Storage, including sending, receiving, and managing queue messages.
+
+- **Microsoft.Extensions.Configuration**  
+  Enables configuration management, such as reading settings from appsettings.json.
+
+- **Microsoft.Extensions.Logging**  
+  Provides logging infrastructure for .NET applications.
+
+- **System.Text.Json**  
+  Used for high-performance JSON serialization and deserialization.
 
 ## Getting Started
 
