@@ -66,8 +66,8 @@ This project uses the following NuGet packages:
 ## License
 This project is for educational purposes.
 
-## Link to YouTube video
-  https://youtu.be/0ZcDPza-Glg
+## Link to YouTube video(Just incase the Azure Resources get dropped)
+  Part 1: https://youtu.be/0ZcDPza-Glg
   
 ## Link to WebApp
   https://st10439147-dbb4a3cbbedxcqd8.southafricanorth-01.azurewebsites.net
