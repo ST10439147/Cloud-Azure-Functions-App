@@ -13,31 +13,34 @@
 using Microsoft.AspNetCore.Mvc;
 using ST10439147_CLDV6212_POE.Models;
 using ST10439147_CLDV6212_POE.Services;
+using Microsoft.Extensions.Logging;
 
 namespace ST10439147_CLDV6212_POE.Controllers
 {
     public class CustomerController : Controller
     {
         private readonly TableService _tableService;
+        private readonly ILogger<CustomerController> _logger;
+
         //--------------------------------------------------------------------------------------------------------------------------------------------------------------//
-        public CustomerController(TableService tableService)// Constructor with TableService injection
+        public CustomerController(TableService tableService, ILogger<CustomerController> logger)
         {
-            _tableService = tableService; // Dependency Injection of TableService
+            _tableService = tableService;
+            _logger = logger;
         }
         //--------------------------------------------------------------------------------------------------------------------------------------------------------------//
-        // this is the main page that lists all customers
-        // method to display all customers
+        // GET: Customer/Index
         public async Task<IActionResult> Index()
         {
             try
             {
+                _logger.LogInformation("Loading all customers");
                 var customers = await _tableService.GetAllCustomersAsync();
                 return View(customers);
             }
             catch (Exception ex)
             {
-                // Log the exception
-                Console.WriteLine($"Error loading customers: {ex.Message}");
+                _logger.LogError(ex, "Error loading customers");
                 ViewBag.Error = "Unable to load customers. Please try again.";
                 return View(new List<Customer>());
             }
@@ -47,17 +50,11 @@ namespace ST10439147_CLDV6212_POE.Controllers
         [HttpGet]
         public IActionResult Create()
         {
-            var customer = new Customer(); // This will initialize RowKey and PartitionKey
+            var customer = new Customer();
             return View(customer);
         }
         //--------------------------------------------------------------------------------------------------------------------------------------------------------------//
         // POST: Customer/Create
-        // This method handles the creation of a new customer
-        // It validates the model and saves it to Azure Table Storage
-        // If successful, it redirects to the Index action
-        // If there are validation errors, it redisplays the form with error messages
-        // It also includes error handling to log exceptions and inform the user
-        // Ensure to include anti-forgery token in the form for security
         [HttpPost]
         [ValidateAntiForgeryToken]
         public async Task<IActionResult> Create(Customer customer)
@@ -70,34 +67,35 @@ namespace ST10439147_CLDV6212_POE.Controllers
 
             if (string.IsNullOrEmpty(customer.PartitionKey))
             {
-                customer.PartitionKey = "Customer"; // Match the default in your model
+                customer.PartitionKey = "Customer";
             }
 
             // Remove RowKey and PartitionKey from ModelState validation
             ModelState.Remove("RowKey");
             ModelState.Remove("PartitionKey");
 
-            if (ModelState.IsValid)// Check if the model is valid, if so, proceed to save
+            if (ModelState.IsValid)
             {
                 try
                 {
+                    _logger.LogInformation($"Creating customer: {customer.Email}");
                     await _tableService.InsertCustomerAsync(customer);
                     TempData["Success"] = "Customer added successfully!";
                     return RedirectToAction(nameof(Index));
                 }
                 catch (Exception ex)
                 {
-                    Console.WriteLine($"Error saving customer: {ex.Message}");
+                    _logger.LogError(ex, "Error saving customer");
                     ModelState.AddModelError("", "Unable to save customer. Please try again.");
                 }
             }
             else
             {
-                foreach (var modelState in ModelState)// Log validation errors, if any, for debugging purposes
+                foreach (var modelState in ModelState)
                 {
                     foreach (var error in modelState.Value.Errors)
                     {
-                        Console.WriteLine($"Validation error for {modelState.Key}: {error.ErrorMessage}");
+                        _logger.LogWarning($"Validation error for {modelState.Key}: {error.ErrorMessage}");
                     }
                 }
             }
@@ -106,56 +104,35 @@ namespace ST10439147_CLDV6212_POE.Controllers
         }
         //--------------------------------------------------------------------------------------------------------------------------------------------------------------//
         // GET: Customer/Edit/5
-        // This method retrieves the customer to be edited based on PartitionKey and RowKey
-        // It handles cases where the customer is not found or an error occurs
-        // It returns the edit view with the customer data if successful
-        // If there are issues, it redirects to the Index action with an error message
-        // Ensure to include anti-forgery token in the form for security
-        // The route parameters are validated to ensure they are not null or empty
-        // The method uses async/await for asynchronous operations
-        // It logs errors to the console for debugging purposes
-        // The method returns appropriate HTTP status codes for different scenarios (NotFound, BadRequest)
-        // It uses TempData to pass success or error messages between actions
         [HttpGet]
         public async Task<IActionResult> Edit(string partitionKey, string rowKey)
         {
-            if (string.IsNullOrEmpty(partitionKey) || string.IsNullOrEmpty(rowKey))// Validate route parameters, if invalid, return NotFound
+            if (string.IsNullOrEmpty(partitionKey) || string.IsNullOrEmpty(rowKey))
             {
+                _logger.LogWarning("Edit called with null or empty keys");
                 return NotFound();
             }
 
-            try// Try to retrieve the customer, if not found, return NotFound
+            try
             {
+                _logger.LogInformation($"Loading customer for edit: {partitionKey}/{rowKey}");
                 var customer = await _tableService.GetCustomerByIdAsync(partitionKey, rowKey);
                 if (customer == null)
                 {
+                    _logger.LogWarning($"Customer not found: {partitionKey}/{rowKey}");
                     return NotFound();
                 }
-                return View(customer);// Return the edit view with the customer data
+                return View(customer);
             }
-            catch (Exception ex)// Catch any exceptions, log the error, and redirect to Index with an error message
+            catch (Exception ex)
             {
-                Console.WriteLine($"Error loading customer for edit: {ex.Message}");
+                _logger.LogError(ex, $"Error loading customer for edit: {partitionKey}/{rowKey}");
                 TempData["Error"] = "Unable to load customer for editing. Please try again.";
                 return RedirectToAction(nameof(Index));
             }
         }
         //--------------------------------------------------------------------------------------------------------------------------------------------------------------//
         // POST: Customer/Edit/5
-        // This method handles the submission of edited customer data
-        // It validates the model and updates the customer in Azure Table Storage
-        // If successful, it redirects to the Index action
-        // If there are validation errors, it redisplays the form with error messages
-        // It also includes error handling to log exceptions and inform the user
-        // Ensure to include anti-forgery token in the form for security
-        // The route parameters are validated to ensure they match the model data
-        // The method uses async/await for asynchronous operations
-        // It logs errors to the console for debugging purposes
-        // The method returns appropriate HTTP status codes for different scenarios (NotFound, BadRequest)
-        // It uses TempData to pass success or error messages between actions
-        // It removes RowKey and PartitionKey from ModelState validation since they shouldn't be changed
-        // It retrieves the existing entity to ensure the latest ETag is used for concurrency
-        // It updates only the editable fields while preserving audit fields like ETag and Timestamp
         [HttpPost]
         [ValidateAntiForgeryToken]
         public async Task<IActionResult> Edit(string partitionKey, string rowKey, Customer customer)
@@ -163,21 +140,25 @@ namespace ST10439147_CLDV6212_POE.Controllers
             // Ensure the route parameters match the model
             if (partitionKey != customer.PartitionKey || rowKey != customer.RowKey)
             {
+                _logger.LogWarning("Route parameters don't match customer data");
                 return BadRequest("Route parameters don't match the customer data.");
             }
 
-            // Remove RowKey and PartitionKey from ModelState validation since they shouldn't be changed
+            // Remove RowKey and PartitionKey from ModelState validation
             ModelState.Remove("RowKey");
             ModelState.Remove("PartitionKey");
 
-            if (ModelState.IsValid)// If the model is valid, proceed to update
+            if (ModelState.IsValid)
             {
-                try// Try to update the customer
+                try
                 {
+                    _logger.LogInformation($"Updating customer: {partitionKey}/{rowKey}");
+
                     // Get the current entity to ensure we have the latest ETag
                     var existingCustomer = await _tableService.GetCustomerByIdAsync(partitionKey, rowKey);
                     if (existingCustomer == null)
                     {
+                        _logger.LogWarning($"Customer not found for update: {partitionKey}/{rowKey}");
                         return NotFound();
                     }
 
@@ -191,19 +172,30 @@ namespace ST10439147_CLDV6212_POE.Controllers
                     TempData["Success"] = "Customer updated successfully!";
                     return RedirectToAction(nameof(Index));
                 }
-                catch (Exception ex)// Catch any exceptions, log the error, and add a model error
+                catch (InvalidOperationException ex) when (ex.Message.Contains("modified by another user"))
                 {
-                    Console.WriteLine($"Error updating customer: {ex.Message}");
+                    _logger.LogWarning(ex, "Concurrency conflict updating customer");
+                    ModelState.AddModelError("", "The customer has been modified by another user. Please refresh and try again.");
+                }
+                catch (InvalidOperationException ex) when (ex.Message.Contains("no longer exists"))
+                {
+                    _logger.LogWarning(ex, "Customer no longer exists");
+                    TempData["Error"] = "The customer no longer exists.";
+                    return RedirectToAction(nameof(Index));
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, $"Error updating customer: {partitionKey}/{rowKey}");
                     ModelState.AddModelError("", "Unable to update customer. Please try again.");
                 }
             }
             else
             {
-                foreach (var modelState in ModelState)// Log validation errors, if any, for debugging purposes
+                foreach (var modelState in ModelState)
                 {
-                    foreach (var error in modelState.Value.Errors)// Log each validation error
+                    foreach (var error in modelState.Value.Errors)
                     {
-                        Console.WriteLine($"Validation error for {modelState.Key}: {error.ErrorMessage}");
+                        _logger.LogWarning($"Validation error for {modelState.Key}: {error.ErrorMessage}");
                     }
                 }
             }
@@ -212,75 +204,55 @@ namespace ST10439147_CLDV6212_POE.Controllers
         }
         //--------------------------------------------------------------------------------------------------------------------------------------------------------------//
         // GET: Customer/Delete/5
-        // This method retrieves the customer to be deleted based on PartitionKey and RowKey
-        // It handles cases where the customer is not found or an error occurs
-        // It returns the delete confirmation view with the customer data if successful
-        // If there are issues, it redirects to the Index action with an error message
-        // Ensure to include anti-forgery token in the form for security
-        // The route parameters are validated to ensure they are not null or empty
-        // The method uses async/await for asynchronous operations
-        // It logs errors to the console for debugging purposes
-        // The method returns appropriate HTTP status codes for different scenarios (NotFound, BadRequest)
-        // It uses TempData to pass success or error messages between actions
-        // It displays a confirmation view before deletion to prevent accidental deletions
         [HttpGet]
         public async Task<IActionResult> Delete(string partitionKey, string rowKey)
         {
-            if (string.IsNullOrEmpty(partitionKey) || string.IsNullOrEmpty(rowKey))// Validate route parameters, if invalid, return NotFound
+            if (string.IsNullOrEmpty(partitionKey) || string.IsNullOrEmpty(rowKey))
             {
+                _logger.LogWarning("Delete called with null or empty keys");
                 return NotFound();
             }
 
-            try// Try to retrieve the customer, if not found, return NotFound
+            try
             {
-                var customer = await _tableService.GetCustomerByIdAsync(partitionKey, rowKey);// Retrieve the customer to confirm deletion
-                if (customer == null)// If customer not found, return NotFound
+                _logger.LogInformation($"Loading customer for delete: {partitionKey}/{rowKey}");
+                var customer = await _tableService.GetCustomerByIdAsync(partitionKey, rowKey);
+                if (customer == null)
                 {
+                    _logger.LogWarning($"Customer not found: {partitionKey}/{rowKey}");
                     return NotFound();
                 }
                 return View(customer);
             }
-            catch (Exception ex)// Catch any exceptions, log the error, and redirect to Index with an error message
+            catch (Exception ex)
             {
-                Console.WriteLine($"Error loading customer for delete: {ex.Message}");
+                _logger.LogError(ex, $"Error loading customer for delete: {partitionKey}/{rowKey}");
                 TempData["Error"] = "Unable to load customer for deletion. Please try again.";
                 return RedirectToAction(nameof(Index));
             }
         }
         //--------------------------------------------------------------------------------------------------------------------------------------------------------------//
         // POST: Customer/Delete/5
-        // This method handles the deletion of a customer
-        // It validates the route parameters and deletes the customer from Azure Table Storage
-        // If successful, it redirects to the Index action
-        // If there are issues, it redirects to the Index action with an error message
-        // Ensure to include anti-forgery token in the form for security
-        // The route parameters are validated to ensure they are not null or empty
-        // The method uses async/await for asynchronous operations
-        // It logs errors to the console for debugging purposes
-        // The method returns appropriate HTTP status codes for different scenarios (NotFound, BadRequest)
-        // It uses TempData to pass success or error messages between actions
-        // It confirms deletion to prevent accidental deletions
-        // The method is decorated with ActionName to differentiate between GET and POST requests for the same action
-        // It handles exceptions gracefully and informs the user of any issues
-        // It ensures that only valid requests can trigger the deletion process
         [HttpPost, ActionName("Delete")]
         [ValidateAntiForgeryToken]
         public async Task<IActionResult> DeleteConfirmed(string partitionKey, string rowKey)
         {
-            if (string.IsNullOrEmpty(partitionKey) || string.IsNullOrEmpty(rowKey))// Validate route parameters, if invalid, return NotFound
+            if (string.IsNullOrEmpty(partitionKey) || string.IsNullOrEmpty(rowKey))
             {
+                _logger.LogWarning("DeleteConfirmed called with null or empty keys");
                 return NotFound();
             }
 
-            try// Try to delete the customer
+            try
             {
+                _logger.LogInformation($"Deleting customer: {partitionKey}/{rowKey}");
                 await _tableService.DeleteCustomerAsync(partitionKey, rowKey);
                 TempData["Success"] = "Customer deleted successfully!";
                 return RedirectToAction(nameof(Index));
             }
-            catch (Exception ex)// Catch any exceptions, log the error, and redirect to Index with an error message
+            catch (Exception ex)
             {
-                Console.WriteLine($"Error deleting customer: {ex.Message}");
+                _logger.LogError(ex, $"Error deleting customer: {partitionKey}/{rowKey}");
                 TempData["Error"] = "Unable to delete customer. Please try again.";
                 return RedirectToAction(nameof(Index));
             }
