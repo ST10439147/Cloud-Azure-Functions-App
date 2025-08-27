@@ -1,7 +1,7 @@
 # ST10439147_CLDV6212_POE
 
 ## Overview
-This is a Razor Pages web application for managing orders, customers, and products. It includes features for viewing, editing, and deleting orders, as well as queue message management and inventory updates.
+This is a Razor Pages web application for managing orders, customers, and products. It includes features for viewing, editing, and deleting orders, as well as queue message management and inventory updates for ABC Retail.
 With the use of Azure's storage account features: Tables service, Queue Service, Blob Storage, File Share services.
 
 ## Features
