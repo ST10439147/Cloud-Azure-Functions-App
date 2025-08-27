@@ -44,9 +44,6 @@ With the use of Azure's storage account features: Tables service, Queue Service,
 - `Controllers/OrderController.cs`: Manages order actions.
 - `Views/Order/`: Razor views for order management.
 
-## Contributing
-Pull requests are welcome. For major changes, please open an issue first.
-
 ## License
 This project is for educational purposes.
 
@@ -56,7 +53,7 @@ This project is for educational purposes.
 ## Link to WebApp
   https://st10439147-dbb4a3cbbedxcqd8.southafricanorth-01.azurewebsites.net
 
-##References
+## References
 - ClaudAI - https://claude.ai/
 - ChatGPT - https://chat.openai.com/
 - W3schools - https://www.w3schools.com/
