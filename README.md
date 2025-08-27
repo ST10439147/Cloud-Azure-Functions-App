@@ -5,8 +5,8 @@ This is a Razor Pages web application for managing orders, customers, and produc
 With the use of Azure's storage account features: Tables service, Queue Service, Blob Storage, File Share services.
 
 ## Features
-- Order management (create, edit, delete)
-- Customer and product details
+- Order, Customer, Product management (create, edit, delete)
+- Order, Customer and product details in the index view
 - Queue message viewing and status
 - Inventory update tracking
 - Responsive UI with Bootstrap and FontAwesome
