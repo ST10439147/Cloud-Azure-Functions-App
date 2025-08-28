@@ -68,6 +68,7 @@ This project is for educational purposes.
 
 ## Link to YouTube video(Just incase the Azure Resources get dropped)
   Part 1: https://youtu.be/0ZcDPza-Glg
+  Proof of Azure Services: https://youtu.be/Kpq19Zyb3qc
   
 ## Link to WebApp
   https://st10439147-dbb4a3cbbedxcqd8.southafricanorth-01.azurewebsites.net
