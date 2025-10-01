@@ -1,7 +1,7 @@
 ﻿// StudentNumber: ST10439147
 // StudentName: Dillon Rinkwest
 // CourseCode: CLDV6212
-// POE Part: 1
+// POE Part: 2
 
 //References:
 // ClaudAI - https://claude.ai/
@@ -12,31 +12,52 @@
 
 using Microsoft.AspNetCore.Mvc;
 using ST10439147_CLDV6212_POE.Models;
-using ST10439147_CLDV6212_POE.Services;
 using Microsoft.Extensions.Logging;
+using System.Text;
+using System.Text.Json;
 
 namespace ST10439147_CLDV6212_POE.Controllers
 {
     public class CustomerController : Controller
     {
-        private readonly TableService _tableService;
+        private readonly HttpClient _httpClient;
         private readonly ILogger<CustomerController> _logger;
+        private readonly string _functionBaseUrl;
+        private readonly string _functionKey;
 
-        //--------------------------------------------------------------------------------------------------------------------------------------------------------------//
-        public CustomerController(TableService tableService, ILogger<CustomerController> logger)
+        public CustomerController(IHttpClientFactory httpClientFactory, ILogger<CustomerController> logger, IConfiguration configuration)
         {
-            _tableService = tableService;
+            _httpClient = httpClientFactory.CreateClient();
             _logger = logger;
+            _functionBaseUrl = configuration["AzureFunctions:BaseUrl"]; // e.g., "https://yourapp.azurewebsites.net/api"
+            _functionKey = configuration["AzureFunctions:FunctionKey"]; // Your function key
         }
-        //--------------------------------------------------------------------------------------------------------------------------------------------------------------//
+
         // GET: Customer/Index
         public async Task<IActionResult> Index()
         {
             try
             {
-                _logger.LogInformation("Loading all customers");
-                var customers = await _tableService.GetAllCustomersAsync();
-                return View(customers);
+                _logger.LogInformation("Loading all customers from Azure Function");
+
+                var request = new HttpRequestMessage(HttpMethod.Get, $"{_functionBaseUrl}/customers");
+                request.Headers.Add("x-functions-key", _functionKey);
+
+                var response = await _httpClient.SendAsync(request);
+
+                if (response.IsSuccessStatusCode)
+                {
+                    var content = await response.Content.ReadAsStringAsync();
+                    var customers = JsonSerializer.Deserialize<List<Customer>>(content, new JsonSerializerOptions
+                    {
+                        PropertyNameCaseInsensitive = true
+                    });
+                    return View(customers);
+                }
+
+                _logger.LogError($"Error loading customers: {response.StatusCode}");
+                ViewBag.Error = "Unable to load customers. Please try again.";
+                return View(new List<Customer>());
             }
             catch (Exception ex)
             {
@@ -45,7 +66,7 @@ namespace ST10439147_CLDV6212_POE.Controllers
                 return View(new List<Customer>());
             }
         }
-        //--------------------------------------------------------------------------------------------------------------------------------------------------------------//
+
         // GET: Customer/Create
         [HttpGet]
         public IActionResult Create()
@@ -53,13 +74,12 @@ namespace ST10439147_CLDV6212_POE.Controllers
             var customer = new Customer();
             return View(customer);
         }
-        //--------------------------------------------------------------------------------------------------------------------------------------------------------------//
+
         // POST: Customer/Create
         [HttpPost]
         [ValidateAntiForgeryToken]
         public async Task<IActionResult> Create(Customer customer)
         {
-            // Ensure RowKey and PartitionKey are set BEFORE model validation
             if (string.IsNullOrEmpty(customer.RowKey))
             {
                 customer.RowKey = Guid.NewGuid().ToString();
@@ -70,7 +90,6 @@ namespace ST10439147_CLDV6212_POE.Controllers
                 customer.PartitionKey = "Customer";
             }
 
-            // Remove RowKey and PartitionKey from ModelState validation
             ModelState.Remove("RowKey");
             ModelState.Remove("PartitionKey");
 
@@ -79,9 +98,24 @@ namespace ST10439147_CLDV6212_POE.Controllers
                 try
                 {
                     _logger.LogInformation($"Creating customer: {customer.Email}");
-                    await _tableService.InsertCustomerAsync(customer);
-                    TempData["Success"] = "Customer added successfully!";
-                    return RedirectToAction(nameof(Index));
+
+                    var request = new HttpRequestMessage(HttpMethod.Post, $"{_functionBaseUrl}/customers");
+                    request.Headers.Add("x-functions-key", _functionKey);
+
+                    var jsonContent = JsonSerializer.Serialize(customer);
+                    request.Content = new StringContent(jsonContent, Encoding.UTF8, "application/json");
+
+                    var response = await _httpClient.SendAsync(request);
+
+                    if (response.IsSuccessStatusCode)
+                    {
+                        TempData["Success"] = "Customer added successfully!";
+                        return RedirectToAction(nameof(Index));
+                    }
+
+                    var errorContent = await response.Content.ReadAsStringAsync();
+                    _logger.LogError($"Error creating customer: {response.StatusCode} - {errorContent}");
+                    ModelState.AddModelError("", "Unable to save customer. Please try again.");
                 }
                 catch (Exception ex)
                 {
@@ -89,20 +123,10 @@ namespace ST10439147_CLDV6212_POE.Controllers
                     ModelState.AddModelError("", "Unable to save customer. Please try again.");
                 }
             }
-            else
-            {
-                foreach (var modelState in ModelState)
-                {
-                    foreach (var error in modelState.Value.Errors)
-                    {
-                        _logger.LogWarning($"Validation error for {modelState.Key}: {error.ErrorMessage}");
-                    }
-                }
-            }
 
             return View(customer);
         }
-        //--------------------------------------------------------------------------------------------------------------------------------------------------------------//
+
         // GET: Customer/Edit/5
         [HttpGet]
         public async Task<IActionResult> Edit(string partitionKey, string rowKey)
@@ -116,13 +140,29 @@ namespace ST10439147_CLDV6212_POE.Controllers
             try
             {
                 _logger.LogInformation($"Loading customer for edit: {partitionKey}/{rowKey}");
-                var customer = await _tableService.GetCustomerByIdAsync(partitionKey, rowKey);
-                if (customer == null)
+
+                var request = new HttpRequestMessage(HttpMethod.Get, $"{_functionBaseUrl}/customers/{partitionKey}/{rowKey}");
+                request.Headers.Add("x-functions-key", _functionKey);
+
+                var response = await _httpClient.SendAsync(request);
+
+                if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
                 {
                     _logger.LogWarning($"Customer not found: {partitionKey}/{rowKey}");
                     return NotFound();
                 }
-                return View(customer);
+
+                if (response.IsSuccessStatusCode)
+                {
+                    var content = await response.Content.ReadAsStringAsync();
+                    var customer = JsonSerializer.Deserialize<Customer>(content, new JsonSerializerOptions
+                    {
+                        PropertyNameCaseInsensitive = true
+                    });
+                    return View(customer);
+                }
+
+                throw new Exception($"Error loading customer: {response.StatusCode}");
             }
             catch (Exception ex)
             {
@@ -131,20 +171,18 @@ namespace ST10439147_CLDV6212_POE.Controllers
                 return RedirectToAction(nameof(Index));
             }
         }
-        //--------------------------------------------------------------------------------------------------------------------------------------------------------------//
+
         // POST: Customer/Edit/5
         [HttpPost]
         [ValidateAntiForgeryToken]
         public async Task<IActionResult> Edit(string partitionKey, string rowKey, Customer customer)
         {
-            // Ensure the route parameters match the model
             if (partitionKey != customer.PartitionKey || rowKey != customer.RowKey)
             {
                 _logger.LogWarning("Route parameters don't match customer data");
                 return BadRequest("Route parameters don't match the customer data.");
             }
 
-            // Remove RowKey and PartitionKey from ModelState validation
             ModelState.Remove("RowKey");
             ModelState.Remove("PartitionKey");
 
@@ -154,34 +192,33 @@ namespace ST10439147_CLDV6212_POE.Controllers
                 {
                     _logger.LogInformation($"Updating customer: {partitionKey}/{rowKey}");
 
-                    // Get the current entity to ensure we have the latest ETag
-                    var existingCustomer = await _tableService.GetCustomerByIdAsync(partitionKey, rowKey);
-                    if (existingCustomer == null)
+                    var request = new HttpRequestMessage(HttpMethod.Put, $"{_functionBaseUrl}/customers/{partitionKey}/{rowKey}");
+                    request.Headers.Add("x-functions-key", _functionKey);
+
+                    var jsonContent = JsonSerializer.Serialize(customer);
+                    request.Content = new StringContent(jsonContent, Encoding.UTF8, "application/json");
+
+                    var response = await _httpClient.SendAsync(request);
+
+                    if (response.IsSuccessStatusCode)
                     {
-                        _logger.LogWarning($"Customer not found for update: {partitionKey}/{rowKey}");
-                        return NotFound();
+                        TempData["Success"] = "Customer updated successfully!";
+                        return RedirectToAction(nameof(Index));
                     }
 
-                    // Update the fields but keep the original ETag and Timestamp
-                    existingCustomer.FirstName = customer.FirstName;
-                    existingCustomer.LastName = customer.LastName;
-                    existingCustomer.Email = customer.Email;
-                    existingCustomer.PhoneNumber = customer.PhoneNumber;
+                    if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
+                    {
+                        TempData["Error"] = "The customer no longer exists.";
+                        return RedirectToAction(nameof(Index));
+                    }
 
-                    await _tableService.UpdateCustomerAsync(existingCustomer);
-                    TempData["Success"] = "Customer updated successfully!";
-                    return RedirectToAction(nameof(Index));
-                }
-                catch (InvalidOperationException ex) when (ex.Message.Contains("modified by another user"))
-                {
-                    _logger.LogWarning(ex, "Concurrency conflict updating customer");
-                    ModelState.AddModelError("", "The customer has been modified by another user. Please refresh and try again.");
-                }
-                catch (InvalidOperationException ex) when (ex.Message.Contains("no longer exists"))
-                {
-                    _logger.LogWarning(ex, "Customer no longer exists");
-                    TempData["Error"] = "The customer no longer exists.";
-                    return RedirectToAction(nameof(Index));
+                    if (response.StatusCode == System.Net.HttpStatusCode.Conflict)
+                    {
+                        ModelState.AddModelError("", "The customer has been modified by another user. Please refresh and try again.");
+                        return View(customer);
+                    }
+
+                    throw new Exception($"Error updating customer: {response.StatusCode}");
                 }
                 catch (Exception ex)
                 {
@@ -189,20 +226,10 @@ namespace ST10439147_CLDV6212_POE.Controllers
                     ModelState.AddModelError("", "Unable to update customer. Please try again.");
                 }
             }
-            else
-            {
-                foreach (var modelState in ModelState)
-                {
-                    foreach (var error in modelState.Value.Errors)
-                    {
-                        _logger.LogWarning($"Validation error for {modelState.Key}: {error.ErrorMessage}");
-                    }
-                }
-            }
 
             return View(customer);
         }
-        //--------------------------------------------------------------------------------------------------------------------------------------------------------------//
+
         // GET: Customer/Delete/5
         [HttpGet]
         public async Task<IActionResult> Delete(string partitionKey, string rowKey)
@@ -216,13 +243,29 @@ namespace ST10439147_CLDV6212_POE.Controllers
             try
             {
                 _logger.LogInformation($"Loading customer for delete: {partitionKey}/{rowKey}");
-                var customer = await _tableService.GetCustomerByIdAsync(partitionKey, rowKey);
-                if (customer == null)
+
+                var request = new HttpRequestMessage(HttpMethod.Get, $"{_functionBaseUrl}/customers/{partitionKey}/{rowKey}");
+                request.Headers.Add("x-functions-key", _functionKey);
+
+                var response = await _httpClient.SendAsync(request);
+
+                if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
                 {
                     _logger.LogWarning($"Customer not found: {partitionKey}/{rowKey}");
                     return NotFound();
                 }
-                return View(customer);
+
+                if (response.IsSuccessStatusCode)
+                {
+                    var content = await response.Content.ReadAsStringAsync();
+                    var customer = JsonSerializer.Deserialize<Customer>(content, new JsonSerializerOptions
+                    {
+                        PropertyNameCaseInsensitive = true
+                    });
+                    return View(customer);
+                }
+
+                throw new Exception($"Error loading customer: {response.StatusCode}");
             }
             catch (Exception ex)
             {
@@ -231,7 +274,7 @@ namespace ST10439147_CLDV6212_POE.Controllers
                 return RedirectToAction(nameof(Index));
             }
         }
-        //--------------------------------------------------------------------------------------------------------------------------------------------------------------//
+
         // POST: Customer/Delete/5
         [HttpPost, ActionName("Delete")]
         [ValidateAntiForgeryToken]
@@ -246,9 +289,25 @@ namespace ST10439147_CLDV6212_POE.Controllers
             try
             {
                 _logger.LogInformation($"Deleting customer: {partitionKey}/{rowKey}");
-                await _tableService.DeleteCustomerAsync(partitionKey, rowKey);
-                TempData["Success"] = "Customer deleted successfully!";
-                return RedirectToAction(nameof(Index));
+
+                var request = new HttpRequestMessage(HttpMethod.Delete, $"{_functionBaseUrl}/customers/{partitionKey}/{rowKey}");
+                request.Headers.Add("x-functions-key", _functionKey);
+
+                var response = await _httpClient.SendAsync(request);
+
+                if (response.IsSuccessStatusCode)
+                {
+                    TempData["Success"] = "Customer deleted successfully!";
+                    return RedirectToAction(nameof(Index));
+                }
+
+                if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
+                {
+                    TempData["Error"] = "Customer not found.";
+                    return RedirectToAction(nameof(Index));
+                }
+
+                throw new Exception($"Error deleting customer: {response.StatusCode}");
             }
             catch (Exception ex)
             {

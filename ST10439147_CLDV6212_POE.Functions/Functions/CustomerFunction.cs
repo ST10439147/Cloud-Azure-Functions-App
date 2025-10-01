@@ -1,8 +1,3 @@
-// StudentNumber: ST10439147
-// StudentName: Dillon Rinkwest
-// CourseCode: CLDV6212
-// POE Part: 2
-
 using System;
 using System.IO;
 using System.Threading.Tasks;
@@ -16,7 +11,7 @@ using Azure.Data.Tables;
 using Azure;
 using System.Collections.Generic;
 
-namespace ST10439147_CLDV6212_POE.Functions
+namespace ST10439147_CLDV6212_POE.Functions.Functions
 {
     public static class CustomerFunction
     {
@@ -39,21 +34,21 @@ namespace ST10439147_CLDV6212_POE.Functions
                 if (customer == null)
                 {
                     return new BadRequestObjectResult("Invalid customer data");
-                }
+        }
 
                 // Validate required fields
                 if (string.IsNullOrEmpty(customer.FirstName) ||
                     string.IsNullOrEmpty(customer.LastName) ||
                     string.IsNullOrEmpty(customer.Email))
-                {
+        {
                     return new BadRequestObjectResult("FirstName, LastName, and Email are required");
                 }
 
                 // Set PartitionKey and RowKey if not provided
                 if (string.IsNullOrEmpty(customer.PartitionKey))
-                {
+            {
                     customer.PartitionKey = "Customer";
-                }
+            }
                 if (string.IsNullOrEmpty(customer.RowKey))
                 {
                     customer.RowKey = Guid.NewGuid().ToString();
@@ -94,7 +89,7 @@ namespace ST10439147_CLDV6212_POE.Functions
                 await foreach (Customer customer in tableClient.QueryAsync<Customer>())
                 {
                     customers.Add(customer);
-                }
+            }
 
                 log.LogInformation($"Retrieved {customers.Count} customers");
                 return new OkObjectResult(customers);

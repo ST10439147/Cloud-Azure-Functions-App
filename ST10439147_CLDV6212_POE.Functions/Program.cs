@@ -1,8 +1,3 @@
-
-
-
-
-
 // CourseCode: CLDV6212
 // POE Part: 2 - Azure Functions Configuration
 

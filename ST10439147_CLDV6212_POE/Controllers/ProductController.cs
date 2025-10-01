@@ -12,37 +12,52 @@
 
 using Microsoft.AspNetCore.Mvc;
 using ST10439147_CLDV6212_POE.Models;
-using ST10439147_CLDV6212_POE.Services;
+using Microsoft.Extensions.Logging;
+using System.Net.Http.Headers;
+using System.Text.Json;
 
 namespace ST10439147_CLDV6212_POE.Controllers
 {
     public class ProductController : Controller
     {
-        
-        private readonly TableService _tableService;// Access to table storage operations
-        private readonly BlobService _blobService;// Access to blob storage operations
-        private readonly ILogger<ProductController> _logger;// Logger for tracking and debugging
-        //--------------------------------------------------------------------------------------------------------------------------------------------------------------//
-        // Constructor with dependency injection for services and logger
-        // Ensures services are available for use in controller methods
-        public ProductController(TableService tableService, BlobService blobService, ILogger<ProductController> logger)
+        private readonly HttpClient _httpClient;
+        private readonly ILogger<ProductController> _logger;
+        private readonly string _functionBaseUrl;
+        private readonly string _functionKey;
+
+        public ProductController(IHttpClientFactory httpClientFactory, ILogger<ProductController> logger, IConfiguration configuration)
         {
-            _tableService = tableService ?? throw new ArgumentNullException(nameof(tableService));
-            _blobService = blobService ?? throw new ArgumentNullException(nameof(blobService));
+            _httpClient = httpClientFactory.CreateClient();
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+            _functionBaseUrl = configuration["AzureFunctions:BaseUrl"];
+            _functionKey = configuration["AzureFunctions:FunctionKey"];
         }
-        //--------------------------------------------------------------------------------------------------------------------------------------------------------------//
-        // GET: Product
-        // Retrieves and displays all products
-        // Handles errors nicely and logs issues
-        // Accessible via /Product/Index or /Product
+
+        // GET: Product/Index
         public async Task<IActionResult> Index()
         {
             try
             {
-                _logger.LogInformation("Retrieving all products");
-                var products = await _tableService.GetAllProductsAsync();
-                return View(products);
+                _logger.LogInformation("Retrieving all products from Azure Function");
+
+                var request = new HttpRequestMessage(HttpMethod.Get, $"{_functionBaseUrl}/products");
+                request.Headers.Add("x-functions-key", _functionKey);
+
+                var response = await _httpClient.SendAsync(request);
+
+                if (response.IsSuccessStatusCode)
+                {
+                    var content = await response.Content.ReadAsStringAsync();
+                    var products = JsonSerializer.Deserialize<List<Product>>(content, new JsonSerializerOptions
+                    {
+                        PropertyNameCaseInsensitive = true
+                    });
+                    return View(products);
+                }
+
+                _logger.LogError($"Error retrieving products: {response.StatusCode}");
+                ViewBag.Error = "Unable to load products. Please try again.";
+                return View(new List<Product>());
             }
             catch (Exception ex)
             {
@@ -51,28 +66,19 @@ namespace ST10439147_CLDV6212_POE.Controllers
                 return View(new List<Product>());
             }
         }
-        //--------------------------------------------------------------------------------------------------------------------------------------------------------------//
+
         // GET: Product/Create
         [HttpGet]
         public IActionResult Create()
         {
             return View();
         }
-        //--------------------------------------------------------------------------------------------------------------------------------------------------------------//
+
         // POST: Product/Create
-        // Handles product creation with image upload
-        // Validates input and manages errors
-        // Redirects to Index on success
-        // This method is used to create a new product entry in the system.
-        // It accepts a Product model and an optional image file for upload.
-        // If the model is valid, it uploads the image (if provided), saves the product to table storage,
-        // and redirects to the Index view with a success message.
-        // If there are validation errors or exceptions, it logs the issues and redisplays the form with error messages.
         [HttpPost]
         [ValidateAntiForgeryToken]
         public async Task<IActionResult> Create(Product product, IFormFile imageFile)
         {
-            // Remove ImageUrl from ModelState validation since it's auto-generated
             ModelState.Remove("ImageUrl");
 
             if (ModelState.IsValid)
@@ -81,47 +87,60 @@ namespace ST10439147_CLDV6212_POE.Controllers
                 {
                     _logger.LogInformation("Creating new product: {ProductName}", product.Name);
 
-                    // Generate RowKey if not set
                     if (string.IsNullOrEmpty(product.RowKey))
                     {
                         product.RowKey = Guid.NewGuid().ToString();
                     }
 
-                    // Handle image upload
+                    // Create multipart form data
+                    using var formData = new MultipartFormDataContent();
+                    formData.Add(new StringContent(product.Name ?? ""), "Name");
+                    formData.Add(new StringContent(product.Description ?? ""), "Description");
+                    formData.Add(new StringContent(product.Price.ToString()), "Price");
+                    formData.Add(new StringContent(product.StockQuantity.ToString()), "StockQuantity");
+
+                    // Add image file if provided
                     if (imageFile != null && imageFile.Length > 0)
                     {
-                        // Validate image file
-                        if (!IsValidImageFile(imageFile, out string errorMessage))
-                        {
-                            ModelState.AddModelError("imageFile", errorMessage);
-                            return View(product);
-                        }
+                        var fileContent = new StreamContent(imageFile.OpenReadStream());
+                        fileContent.Headers.ContentType = new MediaTypeHeaderValue(imageFile.ContentType);
+                        formData.Add(fileContent, "imageFile", imageFile.FileName);
+                    }
 
-                        try
-                        {
-                            product.ImageUrl = await _blobService.UploadImageAsync(imageFile);
-                            _logger.LogInformation("Image uploaded successfully for product: {ProductName}, URL: {ImageUrl}", product.Name, product.ImageUrl);
-                        }
-                        catch (Exception imgEx)
-                        {
-                            _logger.LogError(imgEx, "Failed to upload image for product: {ProductName}", product.Name);
-                            ModelState.AddModelError("imageFile", "Failed to upload image. Please try again.");
-                            return View(product);
-                        }
-                    }
-                    else
+                    var request = new HttpRequestMessage(HttpMethod.Post, $"{_functionBaseUrl}/products");
+                    request.Headers.Add("x-functions-key", _functionKey);
+                    request.Content = formData;
+
+                    var response = await _httpClient.SendAsync(request);
+
+                    if (response.IsSuccessStatusCode)
                     {
-                        // Set a default placeholder if no image is provided
-                        product.ImageUrl = "/images/no-image.png"; // or leave as null if you prefer
+                        TempData["Success"] = "Product added successfully!";
+                        return RedirectToAction(nameof(Index));
                     }
-                    // Insert product into table storage
-                    await _tableService.InsertProductAsync(product);
-                    _logger.LogInformation("Product created successfully: {ProductName} with ID: {ProductId}", product.Name, product.RowKey);
-                    // Redirect to Index with success message
-                    TempData["Success"] = "Product added successfully!";
-                    return RedirectToAction(nameof(Index));
+
+                    var errorContent = await response.Content.ReadAsStringAsync();
+                    _logger.LogError($"Error creating product: {response.StatusCode} - {errorContent}");
+
+                    // Try to parse error message
+                    try
+                    {
+                        var errorObj = JsonSerializer.Deserialize<Dictionary<string, string>>(errorContent);
+                        if (errorObj != null && errorObj.ContainsKey("error"))
+                        {
+                            ModelState.AddModelError("", errorObj["error"]);
+                        }
+                        else
+                        {
+                            ModelState.AddModelError("", "Unable to save product. Please try again.");
+                        }
+                    }
+                    catch
+                    {
+                        ModelState.AddModelError("", "Unable to save product. Please try again.");
+                    }
                 }
-                catch (Exception ex)// Catch any exceptions during product creation
+                catch (Exception ex)
                 {
                     _logger.LogError(ex, "Error creating product: {ProductName}", product.Name);
                     ModelState.AddModelError("", "Unable to save product. Please try again.");
@@ -129,37 +148,48 @@ namespace ST10439147_CLDV6212_POE.Controllers
             }
             else
             {
-                // Log model state errors for debugging
                 foreach (var modelError in ModelState.Where(x => x.Key != "ImageUrl").SelectMany(x => x.Value.Errors))
                 {
                     _logger.LogWarning("Model validation error: {Error}", modelError.ErrorMessage);
                 }
             }
 
-            // If we got this far, something failed, redisplay form
             return View(product);
         }
-        //--------------------------------------------------------------------------------------------------------------------------------------------------------------//
+
         // GET: Product/Details/5
         public async Task<IActionResult> Details(string id)
         {
-            if (string.IsNullOrEmpty(id))// If ID is null or empty
+            if (string.IsNullOrEmpty(id))
             {
-                _logger.LogWarning("Product Details called with null or empty ID");// Log warning
+                _logger.LogWarning("Product Details called with null or empty ID");
                 return NotFound();
             }
 
             try
             {
-                var product = await _tableService.GetProductByIdAsync("Product", id);// Retrieve the product by ID
+                var request = new HttpRequestMessage(HttpMethod.Get, $"{_functionBaseUrl}/products/Product/{id}");
+                request.Headers.Add("x-functions-key", _functionKey);
 
-                if (product == null)// If product not found
+                var response = await _httpClient.SendAsync(request);
+
+                if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
                 {
                     _logger.LogWarning("Product not found: {ProductId}", id);
                     return NotFound();
                 }
 
-                return View(product);// Pass product to view
+                if (response.IsSuccessStatusCode)
+                {
+                    var content = await response.Content.ReadAsStringAsync();
+                    var product = JsonSerializer.Deserialize<Product>(content, new JsonSerializerOptions
+                    {
+                        PropertyNameCaseInsensitive = true
+                    });
+                    return View(product);
+                }
+
+                throw new Exception($"Error retrieving product: {response.StatusCode}");
             }
             catch (Exception ex)
             {
@@ -168,16 +198,8 @@ namespace ST10439147_CLDV6212_POE.Controllers
                 return View();
             }
         }
-        //--------------------------------------------------------------------------------------------------------------------------------------------------------------//
+
         // GET: Product/Edit/5
-        // Displays the edit form for a specific product
-        // Handles errors and logs issues
-        // This method retrieves the product to be edited and displays it in a form.
-        // It handles cases where the product ID is null or the product does not exist,
-        // logging warnings and errors as appropriate.
-        // If the product is found, it passes the product to the view for editing.
-        // If an error occurs during retrieval, it logs the error and redirects to the Index view with an error message.
-        // It expects the product ID as a parameter to identify which product to edit.
         [HttpGet]
         public async Task<IActionResult> Edit(string id)
         {
@@ -189,15 +211,28 @@ namespace ST10439147_CLDV6212_POE.Controllers
 
             try
             {
-                var product = await _tableService.GetProductByIdAsync("Product", id);
+                var request = new HttpRequestMessage(HttpMethod.Get, $"{_functionBaseUrl}/products/Product/{id}");
+                request.Headers.Add("x-functions-key", _functionKey);
 
-                if (product == null)
+                var response = await _httpClient.SendAsync(request);
+
+                if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
                 {
                     _logger.LogWarning("Product not found for edit: {ProductId}", id);
                     return NotFound();
                 }
 
-                return View(product);
+                if (response.IsSuccessStatusCode)
+                {
+                    var content = await response.Content.ReadAsStringAsync();
+                    var product = JsonSerializer.Deserialize<Product>(content, new JsonSerializerOptions
+                    {
+                        PropertyNameCaseInsensitive = true
+                    });
+                    return View(product);
+                }
+
+                throw new Exception($"Error loading product: {response.StatusCode}");
             }
             catch (Exception ex)
             {
@@ -206,101 +241,87 @@ namespace ST10439147_CLDV6212_POE.Controllers
                 return RedirectToAction(nameof(Index));
             }
         }
-        //--------------------------------------------------------------------------------------------------------------------------------------------------------------//
+
         // POST: Product/Edit/5
-        // Handles product updates with optional image replacement
-        // Validates input and manages errors
-        // Redirects to Index on success
-        // This method is used to update an existing product entry in the system.
-        // It accepts a Product model and an optional new image file for upload.
-        // It ensures the product ID in the URL matches the product's RowKey.
-        // If the model is valid, it uploads the new image (if provided), updates the product in table storage,
-        // and redirects to the Index view with a success message.
-        // If there are validation errors or exceptions, it logs the issues and redisplays the form with error messages.
-        // The method also preserves the existing image URL if no new image is uploaded.
         [HttpPost]
         [ValidateAntiForgeryToken]
         public async Task<IActionResult> Edit(string id, Product product, IFormFile imageFile)
         {
-            if (string.IsNullOrEmpty(id))// If ID is null or empty
+            if (string.IsNullOrEmpty(id))
             {
                 return NotFound();
             }
 
-            if (id != product.RowKey)// Ensure the ID in the URL matches the product's RowKey
+            if (id != product.RowKey)
             {
                 _logger.LogWarning("ID mismatch in Edit: URL ID {UrlId}, Product RowKey {RowKey}", id, product.RowKey);
                 return BadRequest("ID mismatch");
             }
 
-            // Remove ImageUrl from ModelState validation since it's handled separately
             ModelState.Remove("ImageUrl");
 
             if (ModelState.IsValid)
             {
                 try
                 {
-                    // Get the existing product to preserve ETag and existing image URL
-                    var existingProduct = await _tableService.GetProductByIdAsync("Product", id);
-                    if (existingProduct == null)
-                    {
-                        _logger.LogWarning("Existing product not found for update: {ProductId}", id);
-                        return NotFound();
-                    }
+                    // Create multipart form data
+                    using var formData = new MultipartFormDataContent();
+                    formData.Add(new StringContent(product.Name ?? ""), "Name");
+                    formData.Add(new StringContent(product.Description ?? ""), "Description");
+                    formData.Add(new StringContent(product.Price.ToString()), "Price");
+                    formData.Add(new StringContent(product.StockQuantity.ToString()), "StockQuantity");
 
-                    // Preserve the ETag
-                    product.ETag = existingProduct.ETag;
-
-                    // Handle new image upload
+                    // Add image file if provided
                     if (imageFile != null && imageFile.Length > 0)
                     {
-                        // Validate image file
-                        if (!IsValidImageFile(imageFile, out string errorMessage))
-                        {
-                            ModelState.AddModelError("imageFile", errorMessage);
-                            return View(product);
-                        }
-
-                        try
-                        {
-                            // Delete old image if it exists and it's not a placeholder
-                            if (!string.IsNullOrEmpty(existingProduct.ImageUrl) &&
-                                !existingProduct.ImageUrl.StartsWith("/images/"))
-                            {
-                                try
-                                {
-                                    await _blobService.DeleteImageAsync(existingProduct.ImageUrl);
-                                    _logger.LogInformation("Old image deleted for product: {ProductId}", id);
-                                }
-                                catch (Exception delEx)
-                                {
-                                    _logger.LogWarning(delEx, "Failed to delete old image: {ImageUrl}", existingProduct.ImageUrl);
-                                    // Continue with update even if old image deletion fails
-                                }
-                            }
-
-                            // Upload new image
-                            product.ImageUrl = await _blobService.UploadImageAsync(imageFile);
-                            _logger.LogInformation("New image uploaded for product: {ProductId}, URL: {ImageUrl}", id, product.ImageUrl);
-                        }
-                        catch (Exception imgEx)
-                        {
-                            _logger.LogError(imgEx, "Failed to upload new image for product: {ProductId}", id);
-                            ModelState.AddModelError("imageFile", "Failed to upload new image. Please try again.");
-                            return View(product);
-                        }
+                        var fileContent = new StreamContent(imageFile.OpenReadStream());
+                        fileContent.Headers.ContentType = new MediaTypeHeaderValue(imageFile.ContentType);
+                        formData.Add(fileContent, "imageFile", imageFile.FileName);
                     }
-                    else
+
+                    var request = new HttpRequestMessage(HttpMethod.Put, $"{_functionBaseUrl}/products/Product/{id}");
+                    request.Headers.Add("x-functions-key", _functionKey);
+                    request.Content = formData;
+
+                    var response = await _httpClient.SendAsync(request);
+
+                    if (response.IsSuccessStatusCode)
                     {
-                        // Preserve existing image URL if no new image uploaded
-                        product.ImageUrl = existingProduct.ImageUrl;
+                        TempData["Success"] = "Product updated successfully!";
+                        return RedirectToAction(nameof(Index));
                     }
 
-                    await _tableService.UpdateProductAsync(product);// Update product in table storage
-                    _logger.LogInformation("Product updated successfully: {ProductId}", id);
+                    if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
+                    {
+                        TempData["Error"] = "The product no longer exists.";
+                        return RedirectToAction(nameof(Index));
+                    }
 
-                    TempData["Success"] = "Product updated successfully!";
-                    return RedirectToAction(nameof(Index));// Redirect to Index on success
+                    if (response.StatusCode == System.Net.HttpStatusCode.Conflict)
+                    {
+                        ModelState.AddModelError("", "The product has been modified by another user. Please refresh and try again.");
+                        return View(product);
+                    }
+
+                    var errorContent = await response.Content.ReadAsStringAsync();
+                    _logger.LogError($"Error updating product: {response.StatusCode} - {errorContent}");
+
+                    try
+                    {
+                        var errorObj = JsonSerializer.Deserialize<Dictionary<string, string>>(errorContent);
+                        if (errorObj != null && errorObj.ContainsKey("error"))
+                        {
+                            ModelState.AddModelError("", errorObj["error"]);
+                        }
+                        else
+                        {
+                            ModelState.AddModelError("", "Unable to update product. Please try again.");
+                        }
+                    }
+                    catch
+                    {
+                        ModelState.AddModelError("", "Unable to update product. Please try again.");
+                    }
                 }
                 catch (Exception ex)
                 {
@@ -310,7 +331,6 @@ namespace ST10439147_CLDV6212_POE.Controllers
             }
             else
             {
-                // Log validation errors for debugging
                 foreach (var modelError in ModelState.Where(x => x.Key != "ImageUrl").SelectMany(x => x.Value.Errors))
                 {
                     _logger.LogWarning("Model validation error in Edit: {Error}", modelError.ErrorMessage);
@@ -319,20 +339,12 @@ namespace ST10439147_CLDV6212_POE.Controllers
 
             return View(product);
         }
-        //--------------------------------------------------------------------------------------------------------------------------------------------------------------//
+
         // GET: Product/Delete/5
-        // Displays confirmation page for product deletion
-        // Handles errors and logs issues
-        // Accessible via /Product/Delete/5
-        // This method retrieves the product to be deleted and displays a confirmation view.
-        // It handles cases where the product ID is null or the product does not exist,
-        // logging warnings and errors.
-        // If the product is found, it passes the product to the view for user confirmation.
-        // If an error occurs during retrieval, it logs the error and redirects to the Index view with an error message.
         [HttpGet]
         public async Task<IActionResult> Delete(string id)
         {
-            if (string.IsNullOrEmpty(id))// If ID is null or empty
+            if (string.IsNullOrEmpty(id))
             {
                 _logger.LogWarning("Product Delete called with null or empty ID");
                 return NotFound();
@@ -340,15 +352,28 @@ namespace ST10439147_CLDV6212_POE.Controllers
 
             try
             {
-                var product = await _tableService.GetProductByIdAsync("Product", id);// Retrieve the product by ID
+                var request = new HttpRequestMessage(HttpMethod.Get, $"{_functionBaseUrl}/products/Product/{id}");
+                request.Headers.Add("x-functions-key", _functionKey);
 
-                if (product == null)// If product not found
+                var response = await _httpClient.SendAsync(request);
+
+                if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
                 {
                     _logger.LogWarning("Product not found for delete: {ProductId}", id);
                     return NotFound();
                 }
 
-                return View(product);// Pass product to view for confirmation
+                if (response.IsSuccessStatusCode)
+                {
+                    var content = await response.Content.ReadAsStringAsync();
+                    var product = JsonSerializer.Deserialize<Product>(content, new JsonSerializerOptions
+                    {
+                        PropertyNameCaseInsensitive = true
+                    });
+                    return View(product);
+                }
+
+                throw new Exception($"Error loading product: {response.StatusCode}");
             }
             catch (Exception ex)
             {
@@ -357,22 +382,8 @@ namespace ST10439147_CLDV6212_POE.Controllers
                 return RedirectToAction(nameof(Index));
             }
         }
-        //--------------------------------------------------------------------------------------------------------------------------------------------------------------//
+
         // POST: Product/Delete/5
-        // Confirms and processes product deletion
-        // Deletes associated image if applicable
-        // Handles errors and logs actions
-        // Redirects to Index after deletion
-        // This method handles the confirmation and processing of product deletion.
-        // It deletes the product from table storage and also removes the associated image from blob storage if it exists.
-        // It manages errors gracefully and logs all significant actions for auditing and debugging purposes.
-        // On successful deletion, it redirects to the Index view with a success message.
-        // If the product is not found or an error occurs, it logs the issue and redirects with an error message.
-        // The method is decorated with [HttpPost] and [ValidateAntiForgeryToken] to ensure secure form submission.
-        // The ActionName attribute allows it to be called "Delete" in the view, matching the GET method.
-        // It expects the product ID as a parameter to identify which product to delete.
-        // It checks for null or empty IDs and handles them appropriately.
-        // It uses the TableService to retrieve and delete the product and the BlobService to manage image deletion.
         [HttpPost, ActionName("Delete")]
         [ValidateAntiForgeryToken]
         public async Task<IActionResult> DeleteConfirmed(string id)
@@ -384,39 +395,24 @@ namespace ST10439147_CLDV6212_POE.Controllers
 
             try
             {
-                var product = await _tableService.GetProductByIdAsync("Product", id);// Retrieve the product to get image URL
+                var request = new HttpRequestMessage(HttpMethod.Delete, $"{_functionBaseUrl}/products/Product/{id}");
+                request.Headers.Add("x-functions-key", _functionKey);
 
-                if (product != null)
+                var response = await _httpClient.SendAsync(request);
+
+                if (response.IsSuccessStatusCode)
                 {
-                    // Delete associated image if it exists and it's not a placeholder
-                    if (!string.IsNullOrEmpty(product.ImageUrl) &&
-                        !product.ImageUrl.StartsWith("/images/"))
-                    {
-                        try
-                        {
-                            await _blobService.DeleteImageAsync(product.ImageUrl);
-                            _logger.LogInformation("Image deleted successfully for product: {ProductId}", id);
-                        }
-                        catch (Exception imgEx)
-                        {
-                            _logger.LogWarning(imgEx, "Failed to delete image for product: {ProductId}, URL: {ImageUrl}", id, product.ImageUrl);
-                            // Continue with product deletion even if image deletion fails
-                        }
-                    }
-
-                    // Delete the product from table storage
-                    await _tableService.DeleteProductAsync("Product", id);
-
-                    _logger.LogInformation("Product deleted successfully: {ProductId}", id);// Log success
                     TempData["Success"] = "Product deleted successfully!";
-                }
-                else
-                {
-                    _logger.LogWarning("Product not found for deletion: {ProductId}", id);
-                    TempData["Error"] = "Product not found.";
+                    return RedirectToAction(nameof(Index));
                 }
 
-                return RedirectToAction(nameof(Index));// Redirect to Index after deletion
+                if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
+                {
+                    TempData["Error"] = "Product not found.";
+                    return RedirectToAction(nameof(Index));
+                }
+
+                throw new Exception($"Error deleting product: {response.StatusCode}");
             }
             catch (Exception ex)
             {
@@ -425,65 +421,6 @@ namespace ST10439147_CLDV6212_POE.Controllers
                 return RedirectToAction(nameof(Index));
             }
         }
-        //--------------------------------------------------------------------------------------------------------------------------------------------------------------//
-        // Using region to organize helper methods
-        #region Helper Methods
-
-        // Validates the uploaded image file for correct type and size
-        // Returns true if valid, false otherwise with an error message
-        // Supports common image formats and limits size to 5MB
-        // This method checks if the provided IFormFile is a valid image file.
-        // It verifies the file's existence, extension, size, and content type.
-        // If the file is invalid, it sets an appropriate error message.
-        private bool IsValidImageFile(IFormFile imageFile, out string errorMessage)
-        {
-            errorMessage = string.Empty;
-
-            // Check if file exists
-            if (imageFile == null || imageFile.Length == 0)
-            {
-                errorMessage = "Please select an image file.";
-                return false;
-            }
-
-            // Validate file extension
-            var allowedExtensions = new[] { ".jpg", ".jpeg", ".png", ".gif", ".bmp", ".webp" };
-            var extension = Path.GetExtension(imageFile.FileName)?.ToLowerInvariant();
-
-            if (string.IsNullOrEmpty(extension) || !allowedExtensions.Contains(extension))// If extension is not allowed
-            {
-                errorMessage = "Please upload a valid image file (jpg, jpeg, png, gif, bmp, webp).";
-                return false;
-            }
-
-            // Check file size (limit to 5MB)
-            const int maxFileSize = 5 * 1024 * 1024; // 5MB
-            if (imageFile.Length > maxFileSize)// If file size exceeds limit
-            {
-                errorMessage = "Image file size cannot exceed 5MB.";
-                return false;
-            }
-
-            // Validate content type
-            var allowedContentTypes = new[] {
-                "image/jpeg",
-                "image/jpg",
-                "image/png",
-                "image/gif",
-                "image/bmp",
-                "image/webp"
-            };
-
-            if (!allowedContentTypes.Contains(imageFile.ContentType?.ToLowerInvariant()))// If content type is not allowed
-            {
-                errorMessage = "Invalid image file type.";
-                return false;
-            }
-
-            return true;
-        }
-
-        #endregion // end of the region
     }
 }
 //-----------------------------------------------------DDDDooooo END OF FILE oooooDDDD-----------------------------------------------------//
