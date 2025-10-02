@@ -1,7 +1,7 @@
 ﻿// StudentNumber: ST10439147
 // StudentName: Dillon Rinkwest
 // CourseCode: CLDV6212
-// POE Part: 1
+// POE Part: 2
 
 //References:
 // ClaudAI - https://claude.ai/
@@ -29,8 +29,10 @@ namespace ST10439147_CLDV6212_POE.Controllers
         {
             _httpClient = httpClientFactory.CreateClient();
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
-            _functionBaseUrl = configuration["AzureFunctions:BaseUrl"];
-            _functionKey = configuration["AzureFunctions:FunctionKey"];
+            _functionBaseUrl = configuration["AzureFunctions:BaseUrl"]?.TrimEnd('/')
+                ?? throw new InvalidOperationException("AzureFunctions:BaseUrl is not configured");
+            _functionKey = configuration["AzureFunctions:FunctionKey"]
+                ?? throw new InvalidOperationException("AzureFunctions:FunctionKey is not configured");
         }
 
         // GET: Product/Index
@@ -51,7 +53,8 @@ namespace ST10439147_CLDV6212_POE.Controllers
                     var products = JsonSerializer.Deserialize<List<Product>>(content, new JsonSerializerOptions
                     {
                         PropertyNameCaseInsensitive = true
-                    });
+                    }) ?? new List<Product>();
+
                     return View(products);
                 }
 
@@ -77,9 +80,11 @@ namespace ST10439147_CLDV6212_POE.Controllers
         // POST: Product/Create
         [HttpPost]
         [ValidateAntiForgeryToken]
-        public async Task<IActionResult> Create(Product product, IFormFile imageFile)
+        public async Task<IActionResult> Create(Product product, IFormFile? imageFile)
         {
+            // Remove ImageUrl from ModelState validation since it's optional
             ModelState.Remove("ImageUrl");
+            ModelState.Remove("RowKey");
 
             if (ModelState.IsValid)
             {
@@ -87,16 +92,13 @@ namespace ST10439147_CLDV6212_POE.Controllers
                 {
                     _logger.LogInformation("Creating new product: {ProductName}", product.Name);
 
-                    if (string.IsNullOrEmpty(product.RowKey))
-                    {
-                        product.RowKey = Guid.NewGuid().ToString();
-                    }
-
                     // Create multipart form data
                     using var formData = new MultipartFormDataContent();
-                    formData.Add(new StringContent(product.Name ?? ""), "Name");
-                    formData.Add(new StringContent(product.Description ?? ""), "Description");
-                    formData.Add(new StringContent(product.Price.ToString()), "Price");
+
+                    // Add product fields
+                    formData.Add(new StringContent(product.Name ?? string.Empty), "Name");
+                    formData.Add(new StringContent(product.Description ?? string.Empty), "Description");
+                    formData.Add(new StringContent(product.Price.ToString("F2")), "Price");
                     formData.Add(new StringContent(product.StockQuantity.ToString()), "StockQuantity");
 
                     // Add image file if provided
@@ -105,50 +107,63 @@ namespace ST10439147_CLDV6212_POE.Controllers
                         var fileContent = new StreamContent(imageFile.OpenReadStream());
                         fileContent.Headers.ContentType = new MediaTypeHeaderValue(imageFile.ContentType);
                         formData.Add(fileContent, "imageFile", imageFile.FileName);
+
+                        _logger.LogInformation("Adding image file: {FileName}, Size: {Size} bytes",
+                            imageFile.FileName, imageFile.Length);
                     }
 
                     var request = new HttpRequestMessage(HttpMethod.Post, $"{_functionBaseUrl}/products");
                     request.Headers.Add("x-functions-key", _functionKey);
                     request.Content = formData;
 
+                    _logger.LogInformation("Sending request to Azure Function: {Url}", request.RequestUri);
                     var response = await _httpClient.SendAsync(request);
 
                     if (response.IsSuccessStatusCode)
                     {
+                        _logger.LogInformation("Product created successfully");
                         TempData["Success"] = "Product added successfully!";
                         return RedirectToAction(nameof(Index));
                     }
 
+                    // Handle error responses
                     var errorContent = await response.Content.ReadAsStringAsync();
                     _logger.LogError($"Error creating product: {response.StatusCode} - {errorContent}");
 
-                    // Try to parse error message
                     try
                     {
-                        var errorObj = JsonSerializer.Deserialize<Dictionary<string, string>>(errorContent);
+                        var errorObj = JsonSerializer.Deserialize<Dictionary<string, string>>(errorContent,
+                            new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+
                         if (errorObj != null && errorObj.ContainsKey("error"))
                         {
-                            ModelState.AddModelError("", errorObj["error"]);
+                            ModelState.AddModelError(string.Empty, errorObj["error"]);
                         }
                         else
                         {
-                            ModelState.AddModelError("", "Unable to save product. Please try again.");
+                            ModelState.AddModelError(string.Empty, "Unable to save product. Please try again.");
                         }
                     }
                     catch
                     {
-                        ModelState.AddModelError("", "Unable to save product. Please try again.");
+                        ModelState.AddModelError(string.Empty, $"Unable to save product. Server returned: {response.StatusCode}");
                     }
+                }
+                catch (HttpRequestException httpEx)
+                {
+                    _logger.LogError(httpEx, "HTTP request error creating product: {ProductName}", product.Name);
+                    ModelState.AddModelError(string.Empty, "Unable to connect to the server. Please try again.");
                 }
                 catch (Exception ex)
                 {
                     _logger.LogError(ex, "Error creating product: {ProductName}", product.Name);
-                    ModelState.AddModelError("", "Unable to save product. Please try again.");
+                    ModelState.AddModelError(string.Empty, "Unable to save product. Please try again.");
                 }
             }
             else
             {
-                foreach (var modelError in ModelState.Where(x => x.Key != "ImageUrl").SelectMany(x => x.Value.Errors))
+                foreach (var modelError in ModelState.Where(x => x.Key != "ImageUrl" && x.Key != "RowKey")
+                    .SelectMany(x => x.Value.Errors))
                 {
                     _logger.LogWarning("Model validation error: {Error}", modelError.ErrorMessage);
                 }
@@ -168,7 +183,8 @@ namespace ST10439147_CLDV6212_POE.Controllers
 
             try
             {
-                var request = new HttpRequestMessage(HttpMethod.Get, $"{_functionBaseUrl}/products/Product/{id}");
+                var request = new HttpRequestMessage(HttpMethod.Get,
+                    $"{_functionBaseUrl}/products/Product/{id}");
                 request.Headers.Add("x-functions-key", _functionKey);
 
                 var response = await _httpClient.SendAsync(request);
@@ -186,10 +202,19 @@ namespace ST10439147_CLDV6212_POE.Controllers
                     {
                         PropertyNameCaseInsensitive = true
                     });
+
+                    if (product == null)
+                    {
+                        _logger.LogWarning("Failed to deserialize product: {ProductId}", id);
+                        return NotFound();
+                    }
+
                     return View(product);
                 }
 
-                throw new Exception($"Error retrieving product: {response.StatusCode}");
+                _logger.LogError($"Error retrieving product: {response.StatusCode}");
+                ViewBag.Error = "Unable to load product details.";
+                return View();
             }
             catch (Exception ex)
             {
@@ -211,7 +236,8 @@ namespace ST10439147_CLDV6212_POE.Controllers
 
             try
             {
-                var request = new HttpRequestMessage(HttpMethod.Get, $"{_functionBaseUrl}/products/Product/{id}");
+                var request = new HttpRequestMessage(HttpMethod.Get,
+                    $"{_functionBaseUrl}/products/Product/{id}");
                 request.Headers.Add("x-functions-key", _functionKey);
 
                 var response = await _httpClient.SendAsync(request);
@@ -229,10 +255,19 @@ namespace ST10439147_CLDV6212_POE.Controllers
                     {
                         PropertyNameCaseInsensitive = true
                     });
+
+                    if (product == null)
+                    {
+                        _logger.LogWarning("Failed to deserialize product for edit: {ProductId}", id);
+                        return NotFound();
+                    }
+
                     return View(product);
                 }
 
-                throw new Exception($"Error loading product: {response.StatusCode}");
+                _logger.LogError($"Error loading product: {response.StatusCode}");
+                TempData["Error"] = "Unable to load product for editing.";
+                return RedirectToAction(nameof(Index));
             }
             catch (Exception ex)
             {
@@ -245,7 +280,7 @@ namespace ST10439147_CLDV6212_POE.Controllers
         // POST: Product/Edit/5
         [HttpPost]
         [ValidateAntiForgeryToken]
-        public async Task<IActionResult> Edit(string id, Product product, IFormFile imageFile)
+        public async Task<IActionResult> Edit(string id, Product product, IFormFile? imageFile)
         {
             if (string.IsNullOrEmpty(id))
             {
@@ -258,17 +293,22 @@ namespace ST10439147_CLDV6212_POE.Controllers
                 return BadRequest("ID mismatch");
             }
 
+            // Remove ImageUrl from ModelState validation since it's optional
             ModelState.Remove("ImageUrl");
 
             if (ModelState.IsValid)
             {
                 try
                 {
+                    _logger.LogInformation("Updating product: {ProductId}", id);
+
                     // Create multipart form data
                     using var formData = new MultipartFormDataContent();
-                    formData.Add(new StringContent(product.Name ?? ""), "Name");
-                    formData.Add(new StringContent(product.Description ?? ""), "Description");
-                    formData.Add(new StringContent(product.Price.ToString()), "Price");
+
+                    // Add product fields
+                    formData.Add(new StringContent(product.Name ?? string.Empty), "Name");
+                    formData.Add(new StringContent(product.Description ?? string.Empty), "Description");
+                    formData.Add(new StringContent(product.Price.ToString("F2")), "Price");
                     formData.Add(new StringContent(product.StockQuantity.ToString()), "StockQuantity");
 
                     // Add image file if provided
@@ -277,61 +317,78 @@ namespace ST10439147_CLDV6212_POE.Controllers
                         var fileContent = new StreamContent(imageFile.OpenReadStream());
                         fileContent.Headers.ContentType = new MediaTypeHeaderValue(imageFile.ContentType);
                         formData.Add(fileContent, "imageFile", imageFile.FileName);
+
+                        _logger.LogInformation("Adding new image file for update: {FileName}, Size: {Size} bytes",
+                            imageFile.FileName, imageFile.Length);
                     }
 
-                    var request = new HttpRequestMessage(HttpMethod.Put, $"{_functionBaseUrl}/products/Product/{id}");
+                    var request = new HttpRequestMessage(HttpMethod.Put,
+                        $"{_functionBaseUrl}/products/Product/{id}");
                     request.Headers.Add("x-functions-key", _functionKey);
                     request.Content = formData;
 
+                    _logger.LogInformation("Sending update request to Azure Function: {Url}", request.RequestUri);
                     var response = await _httpClient.SendAsync(request);
 
                     if (response.IsSuccessStatusCode)
                     {
+                        _logger.LogInformation("Product updated successfully: {ProductId}", id);
                         TempData["Success"] = "Product updated successfully!";
                         return RedirectToAction(nameof(Index));
                     }
 
                     if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
                     {
+                        _logger.LogWarning("Product not found during update: {ProductId}", id);
                         TempData["Error"] = "The product no longer exists.";
                         return RedirectToAction(nameof(Index));
                     }
 
                     if (response.StatusCode == System.Net.HttpStatusCode.Conflict)
                     {
-                        ModelState.AddModelError("", "The product has been modified by another user. Please refresh and try again.");
+                        _logger.LogWarning("Concurrency conflict updating product: {ProductId}", id);
+                        ModelState.AddModelError(string.Empty, "The product has been modified by another user. Please refresh and try again.");
                         return View(product);
                     }
 
+                    // Handle other error responses
                     var errorContent = await response.Content.ReadAsStringAsync();
                     _logger.LogError($"Error updating product: {response.StatusCode} - {errorContent}");
 
                     try
                     {
-                        var errorObj = JsonSerializer.Deserialize<Dictionary<string, string>>(errorContent);
+                        var errorObj = JsonSerializer.Deserialize<Dictionary<string, string>>(errorContent,
+                            new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+
                         if (errorObj != null && errorObj.ContainsKey("error"))
                         {
-                            ModelState.AddModelError("", errorObj["error"]);
+                            ModelState.AddModelError(string.Empty, errorObj["error"]);
                         }
                         else
                         {
-                            ModelState.AddModelError("", "Unable to update product. Please try again.");
+                            ModelState.AddModelError(string.Empty, "Unable to update product. Please try again.");
                         }
                     }
                     catch
                     {
-                        ModelState.AddModelError("", "Unable to update product. Please try again.");
+                        ModelState.AddModelError(string.Empty, $"Unable to update product. Server returned: {response.StatusCode}");
                     }
+                }
+                catch (HttpRequestException httpEx)
+                {
+                    _logger.LogError(httpEx, "HTTP request error updating product: {ProductId}", id);
+                    ModelState.AddModelError(string.Empty, "Unable to connect to the server. Please try again.");
                 }
                 catch (Exception ex)
                 {
                     _logger.LogError(ex, "Error updating product: {ProductId}", id);
-                    ModelState.AddModelError("", "Unable to update product. Please try again.");
+                    ModelState.AddModelError(string.Empty, "Unable to update product. Please try again.");
                 }
             }
             else
             {
-                foreach (var modelError in ModelState.Where(x => x.Key != "ImageUrl").SelectMany(x => x.Value.Errors))
+                foreach (var modelError in ModelState.Where(x => x.Key != "ImageUrl")
+                    .SelectMany(x => x.Value.Errors))
                 {
                     _logger.LogWarning("Model validation error in Edit: {Error}", modelError.ErrorMessage);
                 }
@@ -352,7 +409,8 @@ namespace ST10439147_CLDV6212_POE.Controllers
 
             try
             {
-                var request = new HttpRequestMessage(HttpMethod.Get, $"{_functionBaseUrl}/products/Product/{id}");
+                var request = new HttpRequestMessage(HttpMethod.Get,
+                    $"{_functionBaseUrl}/products/Product/{id}");
                 request.Headers.Add("x-functions-key", _functionKey);
 
                 var response = await _httpClient.SendAsync(request);
@@ -370,10 +428,19 @@ namespace ST10439147_CLDV6212_POE.Controllers
                     {
                         PropertyNameCaseInsensitive = true
                     });
+
+                    if (product == null)
+                    {
+                        _logger.LogWarning("Failed to deserialize product for delete: {ProductId}", id);
+                        return NotFound();
+                    }
+
                     return View(product);
                 }
 
-                throw new Exception($"Error loading product: {response.StatusCode}");
+                _logger.LogError($"Error loading product for delete: {response.StatusCode}");
+                TempData["Error"] = "Unable to load product for deletion.";
+                return RedirectToAction(nameof(Index));
             }
             catch (Exception ex)
             {
@@ -395,24 +462,38 @@ namespace ST10439147_CLDV6212_POE.Controllers
 
             try
             {
-                var request = new HttpRequestMessage(HttpMethod.Delete, $"{_functionBaseUrl}/products/Product/{id}");
+                _logger.LogInformation("Deleting product: {ProductId}", id);
+
+                var request = new HttpRequestMessage(HttpMethod.Delete,
+                    $"{_functionBaseUrl}/products/Product/{id}");
                 request.Headers.Add("x-functions-key", _functionKey);
 
                 var response = await _httpClient.SendAsync(request);
 
                 if (response.IsSuccessStatusCode)
                 {
+                    _logger.LogInformation("Product deleted successfully: {ProductId}", id);
                     TempData["Success"] = "Product deleted successfully!";
                     return RedirectToAction(nameof(Index));
                 }
 
                 if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
                 {
+                    _logger.LogWarning("Product not found during delete: {ProductId}", id);
                     TempData["Error"] = "Product not found.";
                     return RedirectToAction(nameof(Index));
                 }
 
-                throw new Exception($"Error deleting product: {response.StatusCode}");
+                var errorContent = await response.Content.ReadAsStringAsync();
+                _logger.LogError($"Error deleting product: {response.StatusCode} - {errorContent}");
+                TempData["Error"] = "Unable to delete product. Please try again.";
+                return RedirectToAction(nameof(Index));
+            }
+            catch (HttpRequestException httpEx)
+            {
+                _logger.LogError(httpEx, "HTTP request error deleting product: {ProductId}", id);
+                TempData["Error"] = "Unable to connect to the server. Please try again.";
+                return RedirectToAction(nameof(Index));
             }
             catch (Exception ex)
             {

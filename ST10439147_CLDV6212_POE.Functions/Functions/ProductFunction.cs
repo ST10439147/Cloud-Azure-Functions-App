@@ -1,428 +1,305 @@
 // StudentNumber: ST10439147
 // StudentName: Dillon Rinkwest
 // CourseCode: CLDV6212
-// POE Part: 1
+// POE Part: 2
 
-//References:
-// ClaudAI - https://claude.ai/
-// ChatGPT - https://chat.openai.com/
-// W3schools - https://www.w3schools.com/
-// IIEVC School of Computer Science Youtube channel for Azure services setup and use https://www.youtube.com/@VCSOCS
-// AzureApp project done in class with lecturer
-
-using Microsoft.AspNetCore.Http;
-using Microsoft.AspNetCore.Mvc;
+using System;
+using System.IO;
+using System.Net;
+using System.Threading.Tasks;
 using Microsoft.Azure.Functions.Worker;
+using Microsoft.Azure.Functions.Worker.Http;
 using Microsoft.Extensions.Logging;
 using Newtonsoft.Json;
 using ST10439147_CLDV6212_POE.Services;
 using ST10439147_CLDV6212_POE.Models;
-using System;
-using System.IO;
-using System.Linq;
-using System.Threading.Tasks;
+using ST10439147_CLDV6212_POE.Extensions;
+using Azure;
 
-namespace ST10439147_CLDV6212_POE.Functions.Functions
+namespace ST10439147_CLDV6212_POE.Functions
 {
     public class ProductFunction
     {
+        private readonly ILogger<ProductFunction> _logger;
         private readonly TableService _tableService;
         private readonly BlobService _blobService;
-        private readonly ILogger<ProductFunction> _logger;
 
-        public ProductFunction(TableService tableService, BlobService blobService, ILogger<ProductFunction> logger)
+        public ProductFunction(ILogger<ProductFunction> logger, TableService tableService, BlobService blobService)
         {
-            _tableService = tableService ?? throw new ArgumentNullException(nameof(tableService));
-            _blobService = blobService ?? throw new ArgumentNullException(nameof(blobService));
-            _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+            _logger = logger;
+            _tableService = tableService;
+            _blobService = blobService;
         }
 
-        [Function("GetAllProducts")]
-        public async Task<IActionResult> GetAllProducts(
-            [HttpTrigger(AuthorizationLevel.Function, "get", Route = "products")] HttpRequest req)
-        {
-            try
-            {
-                _logger.LogInformation("GetAllProducts function triggered");
-                var products = await _tableService.GetAllProductsAsync();
-                return new OkObjectResult(products);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error retrieving products");
-                return new ObjectResult(new { error = "Unable to load products. Please try again.", message = ex.Message })
-                {
-                    StatusCode = StatusCodes.Status500InternalServerError
-                };
-            }
-        }
-
-        [Function("GetProductById")]
-        public async Task<IActionResult> GetProductById(
-            [HttpTrigger(AuthorizationLevel.Function, "get", Route = "products/{partitionKey}/{rowKey}")]
-            HttpRequest req,
-            string partitionKey,
-            string rowKey)
-        {
-            if (string.IsNullOrEmpty(rowKey))
-            {
-                _logger.LogWarning("Product GetProductById called with null or empty ID");
-                return new NotFoundObjectResult(new { error = "Product ID is required" });
-            }
-
-            try
-            {
-                _logger.LogInformation($"GetProductById function triggered for {partitionKey}/{rowKey}");
-
-                var product = await _tableService.GetProductByIdAsync(partitionKey, rowKey);
-                if (product == null)
-                {
-                    _logger.LogWarning("Product not found: {ProductId}", rowKey);
-                    return new NotFoundObjectResult(new { error = "Product not found" });
-                }
-
-                return new OkObjectResult(product);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error retrieving product details for ID: {ProductId}", rowKey);
-                return new ObjectResult(new { error = "Unable to load product details.", message = ex.Message })
-                {
-                    StatusCode = StatusCodes.Status500InternalServerError
-                };
-            }
-        }
-
+        // POST: Create a new product
         [Function("CreateProduct")]
-        public async Task<IActionResult> CreateProduct(
-            [HttpTrigger(AuthorizationLevel.Function, "post", Route = "products")]
-            HttpRequest req)
+        public async Task<HttpResponseData> CreateProduct(
+            [HttpTrigger(AuthorizationLevel.Function, "post", Route = "products")] HttpRequestData req)
         {
+            _logger.LogInformation("Creating new product");
+
             try
             {
-                _logger.LogInformation("CreateProduct function triggered");
-
                 // Parse multipart form data
-                if (!req.HasFormContentType)
-                {
-                    return new BadRequestObjectResult(new { error = "Request must be multipart/form-data" });
-                }
+                var formData = await req.ReadMultipartAsync();
 
-                var form = await req.ReadFormAsync();
-
-                // Extract product data from form
                 var product = new Product
                 {
-                    Name = form["Name"].ToString(),
-                    Description = form["Description"].ToString(),
-                    Price = double.TryParse(form["Price"], out var price) ? price : 0,
-                    StockQuantity = int.TryParse(form["StockQuantity"], out var stock) ? stock : 0,
-                    PartitionKey = "Product"
+                    PartitionKey = "Product",
+                    RowKey = Guid.NewGuid().ToString(),
+                    Name = formData.GetField("Name"),
+                    Description = formData.GetField("Description"),
+                    Price = double.Parse(formData.GetField("Price")),
+                    StockQuantity = int.Parse(formData.GetField("StockQuantity"))
                 };
 
                 // Validate required fields
                 if (string.IsNullOrEmpty(product.Name))
                 {
-                    return new BadRequestObjectResult(new { error = "Product name is required" });
+                    var badResponse = req.CreateResponse(HttpStatusCode.BadRequest);
+                    await badResponse.WriteAsJsonAsync(new { error = "Product name is required" });
+                    return badResponse;
                 }
 
-                if (product.Price <= 0)
+                // Handle image upload if provided
+                if (formData.Files.Count > 0)
                 {
-                    return new BadRequestObjectResult(new { error = "Price must be greater than 0" });
+                    var fileData = formData.Files[0];
+                    _logger.LogInformation($"Uploading image: {fileData.FileName}");
+
+                    // Convert FileData to IFormFile for BlobService
+                    var formFile = new FormFileWrapper(fileData);
+                    product.ImageUrl = await _blobService.UploadImageAsync(formFile);
+                    _logger.LogInformation($"Image uploaded successfully: {product.ImageUrl}");
                 }
 
-                if (product.StockQuantity < 0)
-                {
-                    return new BadRequestObjectResult(new { error = "Stock quantity cannot be negative" });
-                }
-
-                // Generate RowKey if not set
-                if (string.IsNullOrEmpty(product.RowKey))
-                {
-                    product.RowKey = Guid.NewGuid().ToString();
-                }
-
-                // Handle image upload
-                var imageFile = form.Files.GetFile("imageFile");
-                if (imageFile != null && imageFile.Length > 0)
-                {
-                    // Validate image file
-                    if (!IsValidImageFile(imageFile, out string errorMessage))
-                    {
-                        return new BadRequestObjectResult(new { error = errorMessage });
-                    }
-
-                    try
-                    {
-                        product.ImageUrl = await _blobService.UploadImageAsync(imageFile);
-                        _logger.LogInformation("Image uploaded successfully for product: {ProductName}, URL: {ImageUrl}",
-                            product.Name, product.ImageUrl);
-                    }
-                    catch (Exception imgEx)
-                    {
-                        _logger.LogError(imgEx, "Failed to upload image for product: {ProductName}", product.Name);
-                        return new BadRequestObjectResult(new { error = "Failed to upload image. Please try again." });
-                    }
-                }
-                else
-                {
-                    // Set a default placeholder if no image is provided
-                    product.ImageUrl = "/images/no-image.png";
-                }
-
-                // Insert product into table storage
                 await _tableService.InsertProductAsync(product);
-                _logger.LogInformation("Product created successfully: {ProductName} with ID: {ProductId}",
-                    product.Name, product.RowKey);
 
-                return new CreatedResult($"/api/products/{product.PartitionKey}/{product.RowKey}", product);
+                _logger.LogInformation($"Product created successfully: {product.RowKey}");
+
+                var response = req.CreateResponse(HttpStatusCode.OK);
+                await response.WriteAsJsonAsync(product);
+                return response;
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error creating product");
-                return new ObjectResult(new { error = "Unable to save product. Please try again.", message = ex.Message })
-                {
-                    StatusCode = StatusCodes.Status500InternalServerError
-                };
+                _logger.LogError($"Error creating product: {ex.Message}");
+                var errorResponse = req.CreateResponse(HttpStatusCode.InternalServerError);
+                await errorResponse.WriteAsJsonAsync(new { error = ex.Message });
+                return errorResponse;
             }
         }
 
-        [Function("UpdateProduct")]
-        public async Task<IActionResult> UpdateProduct(
-            [HttpTrigger(AuthorizationLevel.Function, "put", Route = "products/{partitionKey}/{rowKey}")]
-            HttpRequest req,
-            string partitionKey,
-            string rowKey)
+        // GET: Retrieve all products
+        [Function("GetAllProducts")]
+        public async Task<HttpResponseData> GetAllProducts(
+            [HttpTrigger(AuthorizationLevel.Function, "get", Route = "products")] HttpRequestData req)
         {
-            if (string.IsNullOrEmpty(rowKey))
-            {
-                return new NotFoundObjectResult(new { error = "Product ID is required" });
-            }
+            _logger.LogInformation("Retrieving all products");
 
             try
             {
-                _logger.LogInformation($"UpdateProduct function triggered for {partitionKey}/{rowKey}");
+                var products = await _tableService.GetAllProductsAsync();
+
+                _logger.LogInformation($"Retrieved {products.Count} products");
+
+                var response = req.CreateResponse(HttpStatusCode.OK);
+                await response.WriteAsJsonAsync(products);
+                return response;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError($"Error retrieving products: {ex.Message}");
+                var errorResponse = req.CreateResponse(HttpStatusCode.InternalServerError);
+                await errorResponse.WriteAsJsonAsync(new { error = "Internal server error" });
+                return errorResponse;
+            }
+        }
+
+        // GET: Retrieve a product by ID
+        [Function("GetProductById")]
+        public async Task<HttpResponseData> GetProductById(
+            [HttpTrigger(AuthorizationLevel.Function, "get", Route = "products/{partitionKey}/{rowKey}")] HttpRequestData req,
+            string partitionKey,
+            string rowKey)
+        {
+            _logger.LogInformation($"Retrieving product: {partitionKey}/{rowKey}");
+
+            try
+            {
+                var product = await _tableService.GetProductByIdAsync(partitionKey, rowKey);
+
+                _logger.LogInformation($"Product retrieved successfully: {rowKey}");
+
+                var response = req.CreateResponse(HttpStatusCode.OK);
+                await response.WriteAsJsonAsync(product);
+                return response;
+            }
+            catch (InvalidOperationException ex) when (ex.Message.Contains("retrieve product"))
+            {
+                _logger.LogWarning($"Product not found: {partitionKey}/{rowKey}");
+                var notFoundResponse = req.CreateResponse(HttpStatusCode.NotFound);
+                await notFoundResponse.WriteAsJsonAsync(new { error = "Product not found" });
+                return notFoundResponse;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError($"Error retrieving product: {ex.Message}");
+                var errorResponse = req.CreateResponse(HttpStatusCode.InternalServerError);
+                await errorResponse.WriteAsJsonAsync(new { error = "Internal server error" });
+                return errorResponse;
+            }
+        }
+
+        // PUT: Update an existing product
+        [Function("UpdateProduct")]
+        public async Task<HttpResponseData> UpdateProduct(
+            [HttpTrigger(AuthorizationLevel.Function, "put", Route = "products/{partitionKey}/{rowKey}")] HttpRequestData req,
+            string partitionKey,
+            string rowKey)
+        {
+            _logger.LogInformation($"Updating product: {partitionKey}/{rowKey}");
+
+            try
+            {
+                // Get existing product first
+                var existingProduct = await _tableService.GetProductByIdAsync(partitionKey, rowKey);
 
                 // Parse multipart form data
-                if (!req.HasFormContentType)
+                var formData = await req.ReadMultipartAsync();
+
+                // Update fields
+                existingProduct.Name = formData.GetField("Name");
+                existingProduct.Description = formData.GetField("Description");
+                existingProduct.Price = double.Parse(formData.GetField("Price"));
+                existingProduct.StockQuantity = int.Parse(formData.GetField("StockQuantity"));
+
+                // Handle new image upload if provided
+                if (formData.Files.Count > 0)
                 {
-                    return new BadRequestObjectResult(new { error = "Request must be multipart/form-data" });
-                }
+                    var fileData = formData.Files[0];
+                    _logger.LogInformation($"Uploading new image: {fileData.FileName}");
 
-                var form = await req.ReadFormAsync();
-
-                // Get the existing product to preserve ETag and existing image URL
-                var existingProduct = await _tableService.GetProductByIdAsync(partitionKey, rowKey);
-                if (existingProduct == null)
-                {
-                    _logger.LogWarning("Existing product not found for update: {ProductId}", rowKey);
-                    return new NotFoundObjectResult(new { error = "Product not found" });
-                }
-
-                // Update product fields from form
-                existingProduct.Name = form["Name"].ToString();
-                existingProduct.Description = form["Description"].ToString();
-                existingProduct.Price = double.TryParse(form["Price"], out var price) ? price : existingProduct.Price;
-                existingProduct.StockQuantity = int.TryParse(form["StockQuantity"], out var stock) ? stock : existingProduct.StockQuantity;
-
-                // Validate fields
-                if (string.IsNullOrEmpty(existingProduct.Name))
-                {
-                    return new BadRequestObjectResult(new { error = "Product name is required" });
-                }
-
-                if (existingProduct.Price <= 0)
-                {
-                    return new BadRequestObjectResult(new { error = "Price must be greater than 0" });
-                }
-
-                if (existingProduct.StockQuantity < 0)
-                {
-                    return new BadRequestObjectResult(new { error = "Stock quantity cannot be negative" });
-                }
-
-                // Handle new image upload
-                var imageFile = form.Files.GetFile("imageFile");
-                if (imageFile != null && imageFile.Length > 0)
-                {
-                    // Validate image file
-                    if (!IsValidImageFile(imageFile, out string errorMessage))
+                    // Delete old image if it exists
+                    if (!string.IsNullOrEmpty(existingProduct.ImageUrl))
                     {
-                        return new BadRequestObjectResult(new { error = errorMessage });
+                        _logger.LogInformation("Deleting old image");
+                        await _blobService.DeleteImageAsync(existingProduct.ImageUrl);
                     }
 
-                    try
-                    {
-                        // Delete old image if it exists and it's not a placeholder
-                        if (!string.IsNullOrEmpty(existingProduct.ImageUrl) &&
-                            !existingProduct.ImageUrl.StartsWith("/images/"))
-                        {
-                            try
-                            {
-                                await _blobService.DeleteImageAsync(existingProduct.ImageUrl);
-                                _logger.LogInformation("Old image deleted for product: {ProductId}", rowKey);
-                            }
-                            catch (Exception delEx)
-                            {
-                                _logger.LogWarning(delEx, "Failed to delete old image: {ImageUrl}", existingProduct.ImageUrl);
-                                // Continue with update even if old image deletion fails
-                            }
-                        }
-
-                        // Upload new image
-                        existingProduct.ImageUrl = await _blobService.UploadImageAsync(imageFile);
-                        _logger.LogInformation("New image uploaded for product: {ProductId}, URL: {ImageUrl}",
-                            rowKey, existingProduct.ImageUrl);
-                    }
-                    catch (Exception imgEx)
-                    {
-                        _logger.LogError(imgEx, "Failed to upload new image for product: {ProductId}", rowKey);
-                        return new BadRequestObjectResult(new { error = "Failed to upload new image. Please try again." });
-                    }
+                    // Upload new image
+                    var formFile = new FormFileWrapper(fileData);
+                    existingProduct.ImageUrl = await _blobService.UploadImageAsync(formFile);
+                    _logger.LogInformation($"New image uploaded successfully: {existingProduct.ImageUrl}");
                 }
-                // If no new image uploaded, existing ImageUrl is preserved
 
                 await _tableService.UpdateProductAsync(existingProduct);
-                _logger.LogInformation("Product updated successfully: {ProductId}", rowKey);
 
-                return new OkObjectResult(existingProduct);
-            }
-            catch (InvalidOperationException ex) when (ex.Message.Contains("modified by another user"))
-            {
-                _logger.LogWarning(ex, "Concurrency conflict");
-                return new ObjectResult(new { error = "Product has been modified by another user. Please refresh and try again." })
-                {
-                    StatusCode = StatusCodes.Status409Conflict
-                };
+                _logger.LogInformation($"Product updated successfully: {rowKey}");
+
+                var response = req.CreateResponse(HttpStatusCode.OK);
+                await response.WriteAsJsonAsync(existingProduct);
+                return response;
             }
             catch (InvalidOperationException ex) when (ex.Message.Contains("no longer exists"))
             {
-                _logger.LogWarning(ex, "Product not found");
-                return new NotFoundObjectResult(new { error = "Product not found" });
+                _logger.LogWarning($"Product not found: {partitionKey}/{rowKey}");
+                var notFoundResponse = req.CreateResponse(HttpStatusCode.NotFound);
+                await notFoundResponse.WriteAsJsonAsync(new { error = "Product not found" });
+                return notFoundResponse;
+            }
+            catch (InvalidOperationException ex) when (ex.Message.Contains("modified by another user"))
+            {
+                _logger.LogWarning($"Concurrency conflict for product: {partitionKey}/{rowKey}");
+                var conflictResponse = req.CreateResponse(HttpStatusCode.Conflict);
+                await conflictResponse.WriteAsJsonAsync(new { error = "Product has been modified by another user" });
+                return conflictResponse;
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error updating product: {ProductId}", rowKey);
-                return new ObjectResult(new { error = "Unable to update product. Please try again.", message = ex.Message })
-                {
-                    StatusCode = StatusCodes.Status500InternalServerError
-                };
+                _logger.LogError($"Error updating product: {ex.Message}");
+                var errorResponse = req.CreateResponse(HttpStatusCode.InternalServerError);
+                await errorResponse.WriteAsJsonAsync(new { error = ex.Message });
+                return errorResponse;
             }
         }
 
+        // DELETE: Delete a product
         [Function("DeleteProduct")]
-        public async Task<IActionResult> DeleteProduct(
-            [HttpTrigger(AuthorizationLevel.Function, "delete", Route = "products/{partitionKey}/{rowKey}")]
-            HttpRequest req,
+        public async Task<HttpResponseData> DeleteProduct(
+            [HttpTrigger(AuthorizationLevel.Function, "delete", Route = "products/{partitionKey}/{rowKey}")] HttpRequestData req,
             string partitionKey,
             string rowKey)
         {
-            if (string.IsNullOrEmpty(rowKey))
-            {
-                return new NotFoundObjectResult(new { error = "Product ID is required" });
-            }
+            _logger.LogInformation($"Deleting product: {partitionKey}/{rowKey}");
 
             try
             {
-                _logger.LogInformation($"DeleteProduct function triggered for {partitionKey}/{rowKey}");
-
+                // Get product first to retrieve image URL
                 var product = await _tableService.GetProductByIdAsync(partitionKey, rowKey);
 
-                if (product != null)
+                // Delete associated image if it exists
+                if (!string.IsNullOrEmpty(product.ImageUrl))
                 {
-                    // Delete associated image if it exists and it's not a placeholder
-                    if (!string.IsNullOrEmpty(product.ImageUrl) &&
-                        !product.ImageUrl.StartsWith("/images/"))
-                    {
-                        try
-                        {
-                            await _blobService.DeleteImageAsync(product.ImageUrl);
-                            _logger.LogInformation("Image deleted successfully for product: {ProductId}", rowKey);
-                        }
-                        catch (Exception imgEx)
-                        {
-                            _logger.LogWarning(imgEx, "Failed to delete image for product: {ProductId}, URL: {ImageUrl}",
-                                rowKey, product.ImageUrl);
-                            // Continue with product deletion even if image deletion fails
-                        }
-                    }
-
-                    // Delete the product from table storage
-                    await _tableService.DeleteProductAsync(partitionKey, rowKey);
-
-                    _logger.LogInformation("Product deleted successfully: {ProductId}", rowKey);
-                    return new OkObjectResult(new { message = "Product deleted successfully!" });
+                    _logger.LogInformation("Deleting associated image");
+                    await _blobService.DeleteImageAsync(product.ImageUrl);
                 }
-                else
-                {
-                    _logger.LogWarning("Product not found for deletion: {ProductId}", rowKey);
-                    return new NotFoundObjectResult(new { error = "Product not found" });
-                }
+
+                // Delete product from table
+                await _tableService.DeleteProductAsync(partitionKey, rowKey);
+
+                _logger.LogInformation($"Product deleted successfully: {rowKey}");
+
+                var response = req.CreateResponse(HttpStatusCode.OK);
+                await response.WriteAsJsonAsync(new { message = "Product deleted successfully" });
+                return response;
+            }
+            catch (InvalidOperationException ex) when (ex.Message.Contains("retrieve product") || ex.Message.Contains("delete product"))
+            {
+                _logger.LogWarning($"Product not found: {partitionKey}/{rowKey}");
+                var notFoundResponse = req.CreateResponse(HttpStatusCode.NotFound);
+                await notFoundResponse.WriteAsJsonAsync(new { error = "Product not found" });
+                return notFoundResponse;
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error deleting product: {ProductId}", rowKey);
-                return new ObjectResult(new { error = "Unable to delete product. Please try again.", message = ex.Message })
-                {
-                    StatusCode = StatusCodes.Status500InternalServerError
-                };
+                _logger.LogError($"Error deleting product: {ex.Message}");
+                var errorResponse = req.CreateResponse(HttpStatusCode.InternalServerError);
+                await errorResponse.WriteAsJsonAsync(new { error = "Internal server error" });
+                return errorResponse;
             }
         }
+    }
 
-        #region Helper Methods
+    // Wrapper class to convert FileData to IFormFile
+    internal class FormFileWrapper : Microsoft.AspNetCore.Http.IFormFile
+    {
+        private readonly FileData _fileData;
 
-        // Validates the uploaded image file for correct type and size
-        // Returns true if valid, false otherwise with an error message
-        // Supports common image formats and limits size to 5MB
-        private bool IsValidImageFile(IFormFile imageFile, out string errorMessage)
+        public FormFileWrapper(FileData fileData)
         {
-            errorMessage = string.Empty;
-
-            // Check if file exists
-            if (imageFile == null || imageFile.Length == 0)
-            {
-                errorMessage = "Please select an image file.";
-                return false;
-            }
-
-            // Validate file extension
-            var allowedExtensions = new[] { ".jpg", ".jpeg", ".png", ".gif", ".bmp", ".webp" };
-            var extension = Path.GetExtension(imageFile.FileName)?.ToLowerInvariant();
-
-            if (string.IsNullOrEmpty(extension) || !allowedExtensions.Contains(extension))
-            {
-                errorMessage = "Please upload a valid image file (jpg, jpeg, png, gif, bmp, webp).";
-                return false;
-            }
-
-            // Check file size (limit to 5MB)
-            const int maxFileSize = 5 * 1024 * 1024; // 5MB
-            if (imageFile.Length > maxFileSize)
-            {
-                errorMessage = "Image file size cannot exceed 5MB.";
-                return false;
-            }
-
-            // Validate content type
-            var allowedContentTypes = new[] {
-                "image/jpeg",
-                "image/jpg",
-                "image/png",
-                "image/gif",
-                "image/bmp",
-                "image/webp"
-            };
-
-            if (!allowedContentTypes.Contains(imageFile.ContentType?.ToLowerInvariant()))
-            {
-                errorMessage = "Invalid image file type.";
-                return false;
-            }
-
-            return true;
+            _fileData = fileData;
         }
 
-        #endregion
+        public string ContentType => _fileData.ContentType;
+        public string ContentDisposition => $"form-data; name=\"file\"; filename=\"{_fileData.FileName}\"";
+        public Microsoft.AspNetCore.Http.IHeaderDictionary Headers => new Microsoft.AspNetCore.Http.HeaderDictionary();
+        public long Length => _fileData.Length;
+        public string Name => _fileData.Name;
+        public string FileName => _fileData.FileName;
+
+        public Stream OpenReadStream() => _fileData.OpenReadStream();
+
+        public void CopyTo(Stream target)
+        {
+            _fileData.Stream.CopyTo(target);
+            _fileData.Stream.Position = 0;
+        }
+
+        public Task CopyToAsync(Stream target, System.Threading.CancellationToken cancellationToken = default)
+        {
+            return _fileData.Stream.CopyToAsync(target, cancellationToken);
+        }
     }
 }
 //-----------------------------------------------------DDDDooooo END OF FILE oooooDDDD-----------------------------------------------------//

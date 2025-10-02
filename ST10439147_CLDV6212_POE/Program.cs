@@ -13,11 +13,12 @@ namespace ST10439147_CLDV6212_POE
             // Add services to the container.
             builder.Services.AddControllersWithViews();
             // Azure Storage Services
-            builder.Services.AddScoped<TableService>();
-            builder.Services.AddScoped<BlobService>();
-            builder.Services.AddScoped<QueueService>();
-            builder.Services.AddScoped<FileShareService>();
-            
+           // builder.Services.AddScoped<TableService>();
+            //builder.Services.AddScoped<BlobService>();
+            //builder.Services.AddScoped<QueueService>();
+            //builder.Services.AddScoped<FileShareService>();
+
+           
             builder.Services.AddHttpClient();
 
             var app = builder.Build();

@@ -3,89 +3,81 @@
 // CourseCode: CLDV6212
 // POE Part: 2
 
-// References:
-// ClaudAI - https://claude.ai/
-// Microsoft Azure Functions Documentation - https://docs.microsoft.com/en-us/azure/azure-functions/
-
-using System;
-using System.IO;
-using System.Linq;
-using System.Threading.Tasks;
-using System.Collections.Generic;
-using Microsoft.AspNetCore.Mvc;
-using Microsoft.Azure.WebJobs;
-using Microsoft.Azure.WebJobs.Extensions.Http;
 using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.Azure.Functions.Worker;
 using Microsoft.Extensions.Logging;
 using Azure.Storage.Files.Shares;
+using System.Net;
+using System.Text.Json;
 
 namespace ST10439147_CLDV6212_POE.Functions
 {
-    public static class FileUploadFunction
+    public class FileShareFunction
     {
-        // Allowed file extensions
-        private static readonly HashSet<string> AllowedExtensions = new HashSet<string>
+        private readonly ILogger<FileShareFunction> _logger;
+        private readonly string _connectionString;
+        private readonly ShareServiceClient _shareServiceClient;
+        private const string DefaultShareName = "dummycontracts";
+
+        public FileShareFunction(ILogger<FileShareFunction> logger)
         {
-            ".pdf", ".docx", ".txt", ".xlsx"
-        };
+            _logger = logger;
+            _connectionString = Environment.GetEnvironmentVariable("AzureWebJobsStorage");
+            _shareServiceClient = new ShareServiceClient(_connectionString);
+        }
 
-        // Maximum file size (10MB)
-        private const long MaxFileSize = 10 * 1024 * 1024;
-        private const string ShareName = "dummycontracts";
-
-        //--------------------------------------------------------------------------------------------------------------------------------------------------------------//
-        /// <summary>
-        /// Azure Function to get all files from Azure File Share
-        /// HTTP GET endpoint
-        /// </summary>
-        [FunctionName("GetAllFiles")]
-        public static async Task<IActionResult> GetAllFiles(
-            [HttpTrigger(AuthorizationLevel.Function, "get", Route = "files")] HttpRequest req,
-            ILogger log)
+        // GET: /api/files - Get all files from the file share
+        [Function("GetFiles")]
+        public async Task<IActionResult> GetFiles(
+            [HttpTrigger(AuthorizationLevel.Function, "get", Route = "files")] HttpRequest req)
         {
-            log.LogInformation("Get all files function triggered.");
-
             try
             {
-                var connectionString = Environment.GetEnvironmentVariable("AzureStorage:ConnectionString");
-                if (string.IsNullOrEmpty(connectionString))
+                _logger.LogInformation("Retrieving all files from Azure File Share");
+
+                var shareClient = _shareServiceClient.GetShareClient(DefaultShareName);
+
+                // Check if share exists
+                if (!await shareClient.ExistsAsync())
                 {
-                    log.LogError("Azure Storage connection string not configured.");
-                    return new StatusCodeResult(StatusCodes.Status500InternalServerError);
+                    _logger.LogWarning($"Share '{DefaultShareName}' does not exist");
+                    return new OkObjectResult(new List<string>());
                 }
 
-                var fileNames = await GetAllFilesFromShare(connectionString, log);
+                var directoryClient = shareClient.GetRootDirectoryClient();
+                var files = new List<string>();
 
-                return new OkObjectResult(fileNames);
+                await foreach (var item in directoryClient.GetFilesAndDirectoriesAsync())
+                {
+                    if (!item.IsDirectory)
+                    {
+                        files.Add(item.Name);
+                    }
+                }
+
+                _logger.LogInformation($"Retrieved {files.Count} files from file share");
+                return new OkObjectResult(files);
             }
             catch (Exception ex)
             {
-                log.LogError($"Error retrieving files: {ex.Message}");
-                return new ObjectResult(new
+                _logger.LogError(ex, "Error retrieving files from file share");
+                return new ObjectResult(new { error = "Error retrieving files", message = ex.Message })
                 {
-                    success = false,
-                    message = $"Error retrieving files: {ex.Message}"
-                })
-                {
-                    StatusCode = StatusCodes.Status500InternalServerError
+                    StatusCode = (int)HttpStatusCode.InternalServerError
                 };
             }
         }
 
-        //--------------------------------------------------------------------------------------------------------------------------------------------------------------//
-        /// <summary>
-        /// Azure Function to upload a file to Azure File Share
-        /// HTTP POST endpoint that accepts multipart/form-data with a file
-        /// </summary>
-        [FunctionName("UploadFile")]
-        public static async Task<IActionResult> UploadFile(
-            [HttpTrigger(AuthorizationLevel.Function, "post", Route = "files/upload")] HttpRequest req,
-            ILogger log)
+        // POST: /api/files/upload - Upload a file to the file share
+        [Function("UploadFile")]
+        public async Task<IActionResult> UploadFile(
+            [HttpTrigger(AuthorizationLevel.Function, "post", Route = "files/upload")] HttpRequest req)
         {
-            log.LogInformation("File upload function triggered.");
-
             try
             {
+                _logger.LogInformation("Processing file upload request");
+
                 // Check if the request contains multipart/form-data
                 if (!req.HasFormContentType)
                 {
@@ -99,120 +91,123 @@ namespace ST10439147_CLDV6212_POE.Functions
                 var form = await req.ReadFormAsync();
                 var file = form.Files.FirstOrDefault();
 
-                // Validate file presence
                 if (file == null || file.Length == 0)
                 {
-                    log.LogWarning("No file provided in request.");
                     return new BadRequestObjectResult(new
                     {
                         success = false,
-                        message = "Please select a file to upload."
+                        message = "No file provided or file is empty"
                     });
                 }
 
                 // Validate file type
+                var allowedExtensions = new[] { ".pdf", ".docx", ".txt", ".xlsx" };
                 var fileExtension = Path.GetExtension(file.FileName).ToLower();
-                if (!AllowedExtensions.Contains(fileExtension))
+
+                if (!allowedExtensions.Contains(fileExtension))
                 {
-                    log.LogWarning($"Invalid file type attempted: {fileExtension}");
                     return new BadRequestObjectResult(new
                     {
                         success = false,
-                        message = "Only PDF, DOCX, XLSX, and TXT files are allowed."
+                        message = "Only PDF, DOCX, XLSX, and TXT files are allowed"
                     });
                 }
 
-                // Validate file size
-                if (file.Length > MaxFileSize)
+                // Validate file size (max 10MB)
+                if (file.Length > 10 * 1024 * 1024)
                 {
-                    log.LogWarning($"File too large: {file.Length} bytes");
                     return new BadRequestObjectResult(new
                     {
                         success = false,
-                        message = "File size must be less than 10MB."
+                        message = "File size must be less than 10MB"
                     });
                 }
 
-                // Get connection string from environment variables
-                var connectionString = Environment.GetEnvironmentVariable("AzureStorage:ConnectionString");
-                if (string.IsNullOrEmpty(connectionString))
-                {
-                    log.LogError("Azure Storage connection string not configured.");
-                    return new StatusCodeResult(StatusCodes.Status500InternalServerError);
-                }
+                _logger.LogInformation($"Uploading file: {file.FileName}, Size: {file.Length} bytes");
 
-                // Upload file to Azure File Share
-                var fileName = await UploadToAzureFileShare(file, connectionString, log);
+                // Get or create the share
+                var shareClient = _shareServiceClient.GetShareClient(DefaultShareName);
+                await shareClient.CreateIfNotExistsAsync();
 
-                log.LogInformation($"File uploaded successfully: {fileName}");
+                var directoryClient = shareClient.GetRootDirectoryClient();
+
+                // Generate unique filename
+                var uniqueFileName = $"{Guid.NewGuid()}_{file.FileName}";
+                var fileClient = directoryClient.GetFileClient(uniqueFileName);
+
+                // Upload the file
+                using var stream = file.OpenReadStream();
+                await fileClient.CreateAsync(stream.Length);
+                await fileClient.UploadAsync(stream);
+
+                _logger.LogInformation($"File uploaded successfully: {uniqueFileName}");
 
                 return new OkObjectResult(new
                 {
                     success = true,
-                    message = $"File {fileName} uploaded successfully!",
-                    fileName = fileName,
+                    message = $"File '{file.FileName}' uploaded successfully",
+                    fileName = uniqueFileName,
                     originalFileName = file.FileName,
                     fileSize = file.Length,
-                    fileType = GetFileType(fileExtension)
+                    fileType = fileExtension.TrimStart('.')
                 });
             }
             catch (Exception ex)
             {
-                log.LogError($"Error uploading file: {ex.Message}");
+                _logger.LogError(ex, "Error uploading file to file share");
                 return new ObjectResult(new
                 {
                     success = false,
-                    message = $"Error uploading file: {ex.Message}"
+                    message = "Error uploading file",
+                    error = ex.Message
                 })
                 {
-                    StatusCode = StatusCodes.Status500InternalServerError
+                    StatusCode = (int)HttpStatusCode.InternalServerError
                 };
             }
         }
 
-        //--------------------------------------------------------------------------------------------------------------------------------------------------------------//
-        /// <summary>
-        /// Azure Function to download a file from Azure File Share
-        /// HTTP GET endpoint
-        /// </summary>
-        [FunctionName("DownloadFile")]
-        public static async Task<IActionResult> DownloadFile(
+        // GET: /api/files/download/{fileName} - Download a file from the file share
+        [Function("DownloadFile")]
+        public async Task<IActionResult> DownloadFile(
             [HttpTrigger(AuthorizationLevel.Function, "get", Route = "files/download/{fileName}")] HttpRequest req,
-            string fileName,
-            ILogger log)
+            string fileName)
         {
-            log.LogInformation($"File download function triggered for: {fileName}");
-
             try
             {
                 if (string.IsNullOrEmpty(fileName))
                 {
-                    return new BadRequestObjectResult(new
-                    {
-                        success = false,
-                        message = "File name is required."
-                    });
+                    return new BadRequestObjectResult(new { message = "File name is required" });
                 }
 
-                var connectionString = Environment.GetEnvironmentVariable("AzureStorage:ConnectionString");
-                if (string.IsNullOrEmpty(connectionString))
+                _logger.LogInformation($"Downloading file: {fileName}");
+
+                var shareClient = _shareServiceClient.GetShareClient(DefaultShareName);
+
+                if (!await shareClient.ExistsAsync())
                 {
-                    log.LogError("Azure Storage connection string not configured.");
-                    return new StatusCodeResult(StatusCodes.Status500InternalServerError);
+                    return new NotFoundObjectResult(new { message = $"Share '{DefaultShareName}' not found" });
                 }
 
-                var fileStream = await DownloadFromAzureFileShare(fileName, connectionString, log);
+                var directoryClient = shareClient.GetRootDirectoryClient();
+                var fileClient = directoryClient.GetFileClient(fileName);
 
-                if (fileStream == null)
+                // Check if file exists
+                if (!await fileClient.ExistsAsync())
                 {
-                    return new NotFoundObjectResult(new
-                    {
-                        success = false,
-                        message = $"File {fileName} not found."
-                    });
+                    _logger.LogWarning($"File not found: {fileName}");
+                    return new NotFoundObjectResult(new { message = $"File '{fileName}' not found" });
                 }
 
-                var contentType = GetContentType(Path.GetExtension(fileName));
+                // Download the file
+                var download = await fileClient.DownloadAsync();
+                var fileStream = download.Value.Content;
+
+                // Determine content type
+                var contentType = GetContentType(fileName);
+
+                _logger.LogInformation($"File downloaded successfully: {fileName}");
+
                 return new FileStreamResult(fileStream, contentType)
                 {
                     FileDownloadName = fileName
@@ -220,228 +215,81 @@ namespace ST10439147_CLDV6212_POE.Functions
             }
             catch (Exception ex)
             {
-                log.LogError($"Error downloading file: {ex.Message}");
-                return new ObjectResult(new
+                _logger.LogError(ex, $"Error downloading file: {fileName}");
+                return new ObjectResult(new { error = "Error downloading file", message = ex.Message })
                 {
-                    success = false,
-                    message = $"Error downloading file: {ex.Message}"
-                })
-                {
-                    StatusCode = StatusCodes.Status500InternalServerError
+                    StatusCode = (int)HttpStatusCode.InternalServerError
                 };
             }
         }
 
-        //--------------------------------------------------------------------------------------------------------------------------------------------------------------//
-        /// <summary>
-        /// Azure Function to delete a file from Azure File Share
-        /// HTTP DELETE endpoint
-        /// </summary>
-        [FunctionName("DeleteFile")]
-        public static async Task<IActionResult> DeleteFile(
+        // DELETE: /api/files/{fileName} - Delete a file from the file share
+        [Function("DeleteFile")]
+        public async Task<IActionResult> DeleteFile(
             [HttpTrigger(AuthorizationLevel.Function, "delete", Route = "files/{fileName}")] HttpRequest req,
-            string fileName,
-            ILogger log)
+            string fileName)
         {
-            log.LogInformation($"File delete function triggered for: {fileName}");
-
             try
             {
                 if (string.IsNullOrEmpty(fileName))
                 {
-                    return new BadRequestObjectResult(new
-                    {
-                        success = false,
-                        message = "File name is required."
-                    });
+                    return new BadRequestObjectResult(new { message = "File name is required" });
                 }
 
-                var connectionString = Environment.GetEnvironmentVariable("AzureStorage:ConnectionString");
-                if (string.IsNullOrEmpty(connectionString))
+                _logger.LogInformation($"Deleting file: {fileName}");
+
+                var shareClient = _shareServiceClient.GetShareClient(DefaultShareName);
+
+                if (!await shareClient.ExistsAsync())
                 {
-                    log.LogError("Azure Storage connection string not configured.");
-                    return new StatusCodeResult(StatusCodes.Status500InternalServerError);
+                    return new NotFoundObjectResult(new { message = $"Share '{DefaultShareName}' not found" });
                 }
 
-                var deleted = await DeleteFromAzureFileShare(fileName, connectionString, log);
+                var directoryClient = shareClient.GetRootDirectoryClient();
+                var fileClient = directoryClient.GetFileClient(fileName);
 
-                if (deleted)
+                // Delete the file
+                var response = await fileClient.DeleteIfExistsAsync();
+
+                if (response.Value)
                 {
-                    log.LogInformation($"File deleted successfully: {fileName}");
+                    _logger.LogInformation($"File deleted successfully: {fileName}");
                     return new OkObjectResult(new
                     {
                         success = true,
-                        message = $"File {fileName} deleted successfully!"
+                        message = $"File '{fileName}' deleted successfully"
                     });
                 }
                 else
                 {
+                    _logger.LogWarning($"File not found for deletion: {fileName}");
                     return new NotFoundObjectResult(new
                     {
                         success = false,
-                        message = $"File {fileName} not found or could not be deleted."
+                        message = $"File '{fileName}' not found"
                     });
                 }
             }
             catch (Exception ex)
             {
-                log.LogError($"Error deleting file: {ex.Message}");
+                _logger.LogError(ex, $"Error deleting file: {fileName}");
                 return new ObjectResult(new
                 {
                     success = false,
-                    message = $"Error deleting file: {ex.Message}"
+                    error = "Error deleting file",
+                    message = ex.Message
                 })
                 {
-                    StatusCode = StatusCodes.Status500InternalServerError
+                    StatusCode = (int)HttpStatusCode.InternalServerError
                 };
             }
         }
 
-        //--------------------------------------------------------------------------------------------------------------------------------------------------------------//
-        #region Helper Methods
-
-        /// <summary>
-        /// Gets all files from Azure File Share
-        /// </summary>
-        private static async Task<List<string>> GetAllFilesFromShare(string connectionString, ILogger log)
+        // Helper method to get content type based on file extension
+        private string GetContentType(string fileName)
         {
-            var fileNames = new List<string>();
-
-            var shareServiceClient = new ShareServiceClient(connectionString);
-            var shareClient = shareServiceClient.GetShareClient(ShareName);
-
-            // Check if share exists
-            if (!await shareClient.ExistsAsync())
-            {
-                log.LogWarning($"Share {ShareName} does not exist.");
-                return fileNames;
-            }
-
-            var directoryClient = shareClient.GetRootDirectoryClient();
-
-            await foreach (var item in directoryClient.GetFilesAndDirectoriesAsync())
-            {
-                if (!item.IsDirectory)
-                {
-                    fileNames.Add(item.Name);
-                }
-            }
-
-            log.LogInformation($"Retrieved {fileNames.Count} files from share.");
-            return fileNames;
-        }
-
-        /// <summary>
-        /// Uploads a file to Azure File Share
-        /// </summary>
-        private static async Task<string> UploadToAzureFileShare(IFormFile file, string connectionString, ILogger log)
-        {
-            // Initialize Azure File Share client
-            var shareServiceClient = new ShareServiceClient(connectionString);
-            var shareClient = shareServiceClient.GetShareClient(ShareName);
-
-            // Create share if it doesn't exist
-            await shareClient.CreateIfNotExistsAsync();
-            log.LogInformation($"Using Azure File Share: {ShareName}");
-
-            // Get root directory client
-            var directoryClient = shareClient.GetRootDirectoryClient();
-
-            // Create unique file name to avoid collisions
-            var fileName = $"{Guid.NewGuid()}_{file.FileName}";
-            var fileClient = directoryClient.GetFileClient(fileName);
-
-            // Upload file
-            using var stream = file.OpenReadStream();
-            await fileClient.CreateAsync(stream.Length);
-            await fileClient.UploadAsync(stream);
-
-            log.LogInformation($"File uploaded to Azure File Share: {fileName}");
-
-            return fileName;
-        }
-
-        /// <summary>
-        /// Downloads a file from Azure File Share
-        /// </summary>
-        private static async Task<Stream> DownloadFromAzureFileShare(string fileName, string connectionString, ILogger log)
-        {
-            var shareServiceClient = new ShareServiceClient(connectionString);
-            var shareClient = shareServiceClient.GetShareClient(ShareName);
-
-            if (!await shareClient.ExistsAsync())
-            {
-                log.LogWarning($"Share {ShareName} does not exist.");
-                return null;
-            }
-
-            var directoryClient = shareClient.GetRootDirectoryClient();
-            var fileClient = directoryClient.GetFileClient(fileName);
-
-            if (!await fileClient.ExistsAsync())
-            {
-                log.LogWarning($"File {fileName} does not exist.");
-                return null;
-            }
-
-            var download = await fileClient.DownloadAsync();
-            var memoryStream = new MemoryStream();
-            await download.Value.Content.CopyToAsync(memoryStream);
-            memoryStream.Position = 0;
-
-            log.LogInformation($"File downloaded from Azure File Share: {fileName}");
-            return memoryStream;
-        }
-
-        /// <summary>
-        /// Deletes a file from Azure File Share
-        /// </summary>
-        private static async Task<bool> DeleteFromAzureFileShare(string fileName, string connectionString, ILogger log)
-        {
-            var shareServiceClient = new ShareServiceClient(connectionString);
-            var shareClient = shareServiceClient.GetShareClient(ShareName);
-
-            if (!await shareClient.ExistsAsync())
-            {
-                log.LogWarning($"Share {ShareName} does not exist.");
-                return false;
-            }
-
-            var directoryClient = shareClient.GetRootDirectoryClient();
-            var fileClient = directoryClient.GetFileClient(fileName);
-
-            if (!await fileClient.ExistsAsync())
-            {
-                log.LogWarning($"File {fileName} does not exist.");
-                return false;
-            }
-
-            await fileClient.DeleteAsync();
-            log.LogInformation($"File deleted from Azure File Share: {fileName}");
-            return true;
-        }
-
-        /// <summary>
-        /// Helper method to determine file type based on extension
-        /// </summary>
-        private static string GetFileType(string extension)
-        {
-            return extension.ToLower() switch
-            {
-                ".pdf" => "PDF",
-                ".docx" => "DOCX",
-                ".txt" => "TXT",
-                ".xlsx" => "XLSX",
-                _ => "Unknown"
-            };
-        }
-
-        /// <summary>
-        /// Helper method to get content type based on extension
-        /// </summary>
-        private static string GetContentType(string extension)
-        {
-            return extension.ToLower() switch
+            var extension = Path.GetExtension(fileName).ToLower();
+            return extension switch
             {
                 ".pdf" => "application/pdf",
                 ".docx" => "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
@@ -450,7 +298,6 @@ namespace ST10439147_CLDV6212_POE.Functions
                 _ => "application/octet-stream"
             };
         }
-
-        #endregion
     }
-}//-----------------------------------------------------DDDDooooo END OF FILE oooooDDDD-----------------------------------------------------//
+}
+//-----------------------------------------------------DDDDooooo END OF FILE oooooDDDD-----------------------------------------------------//

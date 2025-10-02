@@ -1,7 +1,7 @@
 ﻿// StudentNumber: ST10439147
 // StudentName: Dillon Rinkwest
 // CourseCode: CLDV6212
-// POE Part: 1
+// POE Part: 2
 
 //References:
 // ClaudAI - https://claude.ai/
@@ -34,17 +34,24 @@ namespace ST10439147_CLDV6212_POE.Controllers
         {
             _httpClient = httpClientFactory.CreateClient();
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
-            _functionBaseUrl = configuration["AzureFunctions:BaseUrl"];
-            _functionKey = configuration["AzureFunctions:FunctionKey"];
+
+            // Get Azure Function configuration
+            _functionBaseUrl = configuration["AzureFunctions:BaseUrl"]
+                ?? throw new ArgumentNullException("AzureFunctions:BaseUrl configuration is missing");
+            _functionKey = configuration["AzureFunctions:FunctionKey"]
+                ?? throw new ArgumentNullException("AzureFunctions:FunctionKey configuration is missing");
+
+            _logger.LogInformation($"FileUploadController initialized with base URL: {_functionBaseUrl}");
         }
 
-        // GET: FileUpload/Index
+        // GET: FileUpload/Index - Display all uploaded files
         public async Task<IActionResult> Index()
         {
             try
             {
-                _logger.LogInformation("Retrieving all files from Azure Function");
+                _logger.LogInformation("Retrieving all files from Azure Function API");
 
+                // Create request to Azure Function
                 var request = new HttpRequestMessage(HttpMethod.Get, $"{_functionBaseUrl}/files");
                 request.Headers.Add("x-functions-key", _functionKey);
 
@@ -53,45 +60,54 @@ namespace ST10439147_CLDV6212_POE.Controllers
                 if (response.IsSuccessStatusCode)
                 {
                     var content = await response.Content.ReadAsStringAsync();
+                    _logger.LogInformation($"Received response: {content}");
+
                     var fileNames = JsonSerializer.Deserialize<List<string>>(content, new JsonSerializerOptions
                     {
                         PropertyNameCaseInsensitive = true
-                    });
+                    }) ?? new List<string>();
 
-                    // Convert List<string> to List<FileUpload>
-                    var fileUploads = fileNames?.Select(fileName => new FileUpload
+                    // Convert List<string> to List<FileUpload> for display
+                    var fileUploads = fileNames.Select(fileName => new FileUpload
                     {
                         FileId = Guid.NewGuid().ToString(),
                         FileName = fileName,
                         FileUrl = fileName,
                         FileType = GetFileType(fileName),
                         UploadedOn = DateTime.Now,
-                        UploadedBy = "Unknown"
-                    }).ToList() ?? new List<FileUpload>();
+                        UploadedBy = "System"
+                    }).ToList();
 
+                    _logger.LogInformation($"Successfully retrieved {fileUploads.Count} files");
                     return View(fileUploads);
                 }
 
-                _logger.LogError($"Error retrieving files: {response.StatusCode}");
-                ViewBag.Error = "Unable to load files. Please try again.";
+                _logger.LogError($"Error retrieving files from API: {response.StatusCode}");
+                ViewBag.Error = $"Unable to load files. Status: {response.StatusCode}";
+                return View(new List<FileUpload>());
+            }
+            catch (HttpRequestException httpEx)
+            {
+                _logger.LogError(httpEx, "HTTP error retrieving files from Azure Function");
+                ViewBag.Error = "Unable to connect to the file service. Please check if the Azure Function is running.";
                 return View(new List<FileUpload>());
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error retrieving files");
-                ViewBag.Error = "Unable to load files. Please try again.";
+                ViewBag.Error = "An unexpected error occurred while loading files.";
                 return View(new List<FileUpload>());
             }
         }
 
-        // GET: FileUpload/Upload
+        // GET: FileUpload/Upload - Display upload form
         [HttpGet]
         public IActionResult Upload()
         {
             return View();
         }
 
-        // POST: FileUpload/Upload
+        // POST: FileUpload/Upload - Handle file upload
         [HttpPost]
         [ValidateAntiForgeryToken]
         public async Task<IActionResult> Upload(IFormFile file)
@@ -119,39 +135,41 @@ namespace ST10439147_CLDV6212_POE.Controllers
 
             try
             {
-                _logger.LogInformation($"Uploading file: {file.FileName}");
+                _logger.LogInformation($"Uploading file: {file.FileName} ({file.Length} bytes)");
 
-                // Create multipart form data
+                // Create multipart form data for file upload
                 using var formData = new MultipartFormDataContent();
-                var fileContent = new StreamContent(file.OpenReadStream());
+                using var fileStream = file.OpenReadStream();
+                var fileContent = new StreamContent(fileStream);
                 fileContent.Headers.ContentType = new MediaTypeHeaderValue(file.ContentType);
                 formData.Add(fileContent, "file", file.FileName);
 
+                // Create request to Azure Function upload endpoint
                 var request = new HttpRequestMessage(HttpMethod.Post, $"{_functionBaseUrl}/files/upload");
                 request.Headers.Add("x-functions-key", _functionKey);
                 request.Content = formData;
 
                 var response = await _httpClient.SendAsync(request);
+                var responseContent = await response.Content.ReadAsStringAsync();
+
+                _logger.LogInformation($"Upload response: {response.StatusCode} - {responseContent}");
 
                 if (response.IsSuccessStatusCode)
                 {
-                    var content = await response.Content.ReadAsStringAsync();
-                    var result = JsonSerializer.Deserialize<FileUploadResponse>(content, new JsonSerializerOptions
+                    var result = JsonSerializer.Deserialize<FileUploadResponse>(responseContent, new JsonSerializerOptions
                     {
                         PropertyNameCaseInsensitive = true
                     });
 
-                    TempData["Success"] = result?.Message ?? $"File {file.FileName} uploaded successfully!";
+                    TempData["Success"] = result?.Message ?? $"File '{file.FileName}' uploaded successfully!";
+                    _logger.LogInformation($"File uploaded successfully: {file.FileName}");
                     return RedirectToAction(nameof(Index));
                 }
 
-                var errorContent = await response.Content.ReadAsStringAsync();
-                _logger.LogError($"Error uploading file: {response.StatusCode} - {errorContent}");
-
-                // Try to parse error message
+                // Handle error response
                 try
                 {
-                    var errorObj = JsonSerializer.Deserialize<FileUploadResponse>(errorContent, new JsonSerializerOptions
+                    var errorObj = JsonSerializer.Deserialize<FileUploadResponse>(responseContent, new JsonSerializerOptions
                     {
                         PropertyNameCaseInsensitive = true
                     });
@@ -159,20 +177,27 @@ namespace ST10439147_CLDV6212_POE.Controllers
                 }
                 catch
                 {
-                    TempData["Error"] = "Error uploading file. Please try again.";
+                    TempData["Error"] = $"Error uploading file: {response.StatusCode}";
                 }
 
+                _logger.LogError($"Error uploading file: {response.StatusCode} - {responseContent}");
+                return View();
+            }
+            catch (HttpRequestException httpEx)
+            {
+                _logger.LogError(httpEx, $"HTTP error uploading file: {file.FileName}");
+                TempData["Error"] = "Unable to connect to the file service. Please check if the Azure Function is running.";
                 return View();
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, $"Error uploading file: {file.FileName}");
-                TempData["Error"] = $"Error uploading file: {ex.Message}";
+                TempData["Error"] = $"An unexpected error occurred: {ex.Message}";
                 return View();
             }
         }
 
-        // GET: FileUpload/Download
+        // GET: FileUpload/Download - Download a file
         public async Task<IActionResult> Download(string fileName)
         {
             if (string.IsNullOrEmpty(fileName))
@@ -185,7 +210,9 @@ namespace ST10439147_CLDV6212_POE.Controllers
             {
                 _logger.LogInformation($"Downloading file: {fileName}");
 
-                var request = new HttpRequestMessage(HttpMethod.Get, $"{_functionBaseUrl}/files/download/{Uri.EscapeDataString(fileName)}");
+                // Create request to Azure Function download endpoint
+                var encodedFileName = Uri.EscapeDataString(fileName);
+                var request = new HttpRequestMessage(HttpMethod.Get, $"{_functionBaseUrl}/files/download/{encodedFileName}");
                 request.Headers.Add("x-functions-key", _functionKey);
 
                 var response = await _httpClient.SendAsync(request);
@@ -194,26 +221,38 @@ namespace ST10439147_CLDV6212_POE.Controllers
                 {
                     var fileStream = await response.Content.ReadAsStreamAsync();
                     var contentType = GetContentType(fileName);
+
+                    _logger.LogInformation($"File downloaded successfully: {fileName}");
                     return File(fileStream, contentType, fileName);
                 }
 
                 if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
                 {
-                    TempData["Error"] = $"File {fileName} not found.";
+                    TempData["Error"] = $"File '{fileName}' not found.";
+                    _logger.LogWarning($"File not found: {fileName}");
                     return RedirectToAction(nameof(Index));
                 }
 
-                throw new Exception($"Error downloading file: {response.StatusCode}");
+                var errorContent = await response.Content.ReadAsStringAsync();
+                _logger.LogError($"Error downloading file: {response.StatusCode} - {errorContent}");
+                TempData["Error"] = $"Error downloading file: {response.StatusCode}";
+                return RedirectToAction(nameof(Index));
+            }
+            catch (HttpRequestException httpEx)
+            {
+                _logger.LogError(httpEx, $"HTTP error downloading file: {fileName}");
+                TempData["Error"] = "Unable to connect to the file service. Please check if the Azure Function is running.";
+                return RedirectToAction(nameof(Index));
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, $"Error downloading file: {fileName}");
-                TempData["Error"] = $"Error downloading file: {ex.Message}";
+                TempData["Error"] = $"An unexpected error occurred: {ex.Message}";
                 return RedirectToAction(nameof(Index));
             }
         }
 
-        // POST: FileUpload/Delete
+        // POST: FileUpload/Delete - Delete a file
         [HttpPost]
         [ValidateAntiForgeryToken]
         public async Task<IActionResult> Delete(string fileName)
@@ -228,34 +267,49 @@ namespace ST10439147_CLDV6212_POE.Controllers
             {
                 _logger.LogInformation($"Deleting file: {fileName}");
 
-                var request = new HttpRequestMessage(HttpMethod.Delete, $"{_functionBaseUrl}/files/{Uri.EscapeDataString(fileName)}");
+                // Create request to Azure Function delete endpoint
+                var encodedFileName = Uri.EscapeDataString(fileName);
+                var request = new HttpRequestMessage(HttpMethod.Delete, $"{_functionBaseUrl}/files/{encodedFileName}");
                 request.Headers.Add("x-functions-key", _functionKey);
 
                 var response = await _httpClient.SendAsync(request);
+                var responseContent = await response.Content.ReadAsStringAsync();
+
+                _logger.LogInformation($"Delete response: {response.StatusCode} - {responseContent}");
 
                 if (response.IsSuccessStatusCode)
                 {
-                    TempData["Success"] = $"File {fileName} deleted successfully!";
+                    TempData["Success"] = $"File '{fileName}' deleted successfully!";
+                    _logger.LogInformation($"File deleted successfully: {fileName}");
                     return RedirectToAction(nameof(Index));
                 }
 
                 if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
                 {
-                    TempData["Error"] = $"File {fileName} not found or could not be deleted.";
+                    TempData["Error"] = $"File '{fileName}' not found or could not be deleted.";
+                    _logger.LogWarning($"File not found for deletion: {fileName}");
                     return RedirectToAction(nameof(Index));
                 }
 
-                throw new Exception($"Error deleting file: {response.StatusCode}");
+                _logger.LogError($"Error deleting file: {response.StatusCode} - {responseContent}");
+                TempData["Error"] = $"Error deleting file: {response.StatusCode}";
+                return RedirectToAction(nameof(Index));
+            }
+            catch (HttpRequestException httpEx)
+            {
+                _logger.LogError(httpEx, $"HTTP error deleting file: {fileName}");
+                TempData["Error"] = "Unable to connect to the file service. Please check if the Azure Function is running.";
+                return RedirectToAction(nameof(Index));
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, $"Error deleting file: {fileName}");
-                TempData["Error"] = $"Error deleting file: {ex.Message}";
+                TempData["Error"] = $"An unexpected error occurred: {ex.Message}";
                 return RedirectToAction(nameof(Index));
             }
         }
 
-        // Helper methods
+        // Helper method to get file type from extension
         private string GetFileType(string fileName)
         {
             var extension = Path.GetExtension(fileName).ToLower();
@@ -269,6 +323,7 @@ namespace ST10439147_CLDV6212_POE.Controllers
             };
         }
 
+        // Helper method to get content type from file name
         private string GetContentType(string fileName)
         {
             var extension = Path.GetExtension(fileName).ToLower();
@@ -282,7 +337,7 @@ namespace ST10439147_CLDV6212_POE.Controllers
             };
         }
 
-        // Response model for JSON deserialization
+        // Response model for JSON deserialization from Azure Function
         private class FileUploadResponse
         {
             public bool Success { get; set; }
@@ -291,6 +346,7 @@ namespace ST10439147_CLDV6212_POE.Controllers
             public string OriginalFileName { get; set; }
             public long FileSize { get; set; }
             public string FileType { get; set; }
+            public string Error { get; set; }
         }
     }
 }

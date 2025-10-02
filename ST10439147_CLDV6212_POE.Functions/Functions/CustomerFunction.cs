@@ -1,30 +1,39 @@
+// StudentNumber: ST10439147
+// StudentName: Dillon Rinkwest
+// CourseCode: CLDV6212
+// POE Part: 2
+
 using System;
 using System.IO;
+using System.Net;
 using System.Threading.Tasks;
-using Microsoft.AspNetCore.Mvc;
-using Microsoft.Azure.WebJobs;
-using Microsoft.Azure.WebJobs.Extensions.Http;
-using Microsoft.AspNetCore.Http;
+using Microsoft.Azure.Functions.Worker;
+using Microsoft.Azure.Functions.Worker.Http;
 using Microsoft.Extensions.Logging;
 using Newtonsoft.Json;
-using Azure.Data.Tables;
+using ST10439147_CLDV6212_POE.Services;
+using ST10439147_CLDV6212_POE.Models;
 using Azure;
-using System.Collections.Generic;
 
-namespace ST10439147_CLDV6212_POE.Functions.Functions
+namespace ST10439147_CLDV6212_POE.Functions
 {
-    public static class CustomerFunction
+    public class CustomerFunction
     {
-        private const string TableName = "customers";
-        private const string ConnectionStringName = "AzureWebJobsStorage";
+        private readonly ILogger<CustomerFunction> _logger;
+        private readonly TableService _tableService;
+
+        public CustomerFunction(ILogger<CustomerFunction> logger, TableService tableService)
+        {
+            _logger = logger;
+            _tableService = tableService;
+        }
 
         // POST: Create a new customer
-        [FunctionName("CreateCustomer")]
-        public static async Task<IActionResult> CreateCustomer(
-            [HttpTrigger(AuthorizationLevel.Function, "post", Route = "customers")] HttpRequest req,
-            ILogger log)
+        [Function("CreateCustomer")]
+        public async Task<HttpResponseData> CreateCustomer(
+            [HttpTrigger(AuthorizationLevel.Function, "post", Route = "customers")] HttpRequestData req)
         {
-            log.LogInformation("Creating new customer");
+            _logger.LogInformation("Creating new customer");
 
             try
             {
@@ -33,116 +42,117 @@ namespace ST10439147_CLDV6212_POE.Functions.Functions
 
                 if (customer == null)
                 {
-                    return new BadRequestObjectResult("Invalid customer data");
-        }
+                    var badResponse = req.CreateResponse(HttpStatusCode.BadRequest);
+                    await badResponse.WriteStringAsync("Invalid customer data");
+                    return badResponse;
+                }
 
                 // Validate required fields
                 if (string.IsNullOrEmpty(customer.FirstName) ||
                     string.IsNullOrEmpty(customer.LastName) ||
                     string.IsNullOrEmpty(customer.Email))
-        {
-                    return new BadRequestObjectResult("FirstName, LastName, and Email are required");
+                {
+                    var badResponse = req.CreateResponse(HttpStatusCode.BadRequest);
+                    await badResponse.WriteStringAsync("FirstName, LastName, and Email are required");
+                    return badResponse;
                 }
 
                 // Set PartitionKey and RowKey if not provided
                 if (string.IsNullOrEmpty(customer.PartitionKey))
-            {
+                {
                     customer.PartitionKey = "Customer";
-            }
+                }
                 if (string.IsNullOrEmpty(customer.RowKey))
                 {
                     customer.RowKey = Guid.NewGuid().ToString();
                 }
 
-                var tableClient = new TableClient(
-                    Environment.GetEnvironmentVariable(ConnectionStringName),
-                    TableName);
+                await _tableService.InsertCustomerAsync(customer);
 
-                await tableClient.CreateIfNotExistsAsync();
-                await tableClient.AddEntityAsync(customer);
+                _logger.LogInformation($"Customer created successfully: {customer.RowKey}");
 
-                log.LogInformation($"Customer created successfully: {customer.RowKey}");
-                return new OkObjectResult(customer);
+                var response = req.CreateResponse(HttpStatusCode.OK);
+                await response.WriteAsJsonAsync(customer);
+                return response;
             }
             catch (Exception ex)
             {
-                log.LogError($"Error creating customer: {ex.Message}");
-                return new StatusCodeResult(StatusCodes.Status500InternalServerError);
+                _logger.LogError($"Error creating customer: {ex.Message}");
+                var errorResponse = req.CreateResponse(HttpStatusCode.InternalServerError);
+                await errorResponse.WriteStringAsync("Internal server error");
+                return errorResponse;
             }
         }
 
         // GET: Retrieve all customers
-        [FunctionName("GetAllCustomers")]
-        public static async Task<IActionResult> GetAllCustomers(
-            [HttpTrigger(AuthorizationLevel.Function, "get", Route = "customers")] HttpRequest req,
-            ILogger log)
+        [Function("GetAllCustomers")]
+        public async Task<HttpResponseData> GetAllCustomers(
+            [HttpTrigger(AuthorizationLevel.Function, "get", Route = "customers")] HttpRequestData req)
         {
-            log.LogInformation("Retrieving all customers");
+            _logger.LogInformation("Retrieving all customers");
 
             try
             {
-                var tableClient = new TableClient(
-                    Environment.GetEnvironmentVariable(ConnectionStringName),
-                    TableName);
+                var customers = await _tableService.GetAllCustomersAsync();
 
-                var customers = new List<Customer>();
-                await foreach (Customer customer in tableClient.QueryAsync<Customer>())
-                {
-                    customers.Add(customer);
-            }
+                _logger.LogInformation($"Retrieved {customers.Count} customers");
 
-                log.LogInformation($"Retrieved {customers.Count} customers");
-                return new OkObjectResult(customers);
+                var response = req.CreateResponse(HttpStatusCode.OK);
+                await response.WriteAsJsonAsync(customers);
+                return response;
             }
             catch (Exception ex)
             {
-                log.LogError($"Error retrieving customers: {ex.Message}");
-                return new StatusCodeResult(StatusCodes.Status500InternalServerError);
+                _logger.LogError($"Error retrieving customers: {ex.Message}");
+                var errorResponse = req.CreateResponse(HttpStatusCode.InternalServerError);
+                await errorResponse.WriteStringAsync("Internal server error");
+                return errorResponse;
             }
         }
 
         // GET: Retrieve a customer by ID
-        [FunctionName("GetCustomerById")]
-        public static async Task<IActionResult> GetCustomerById(
-            [HttpTrigger(AuthorizationLevel.Function, "get", Route = "customers/{partitionKey}/{rowKey}")] HttpRequest req,
+        [Function("GetCustomerById")]
+        public async Task<HttpResponseData> GetCustomerById(
+            [HttpTrigger(AuthorizationLevel.Function, "get", Route = "customers/{partitionKey}/{rowKey}")] HttpRequestData req,
             string partitionKey,
-            string rowKey,
-            ILogger log)
+            string rowKey)
         {
-            log.LogInformation($"Retrieving customer: {partitionKey}/{rowKey}");
+            _logger.LogInformation($"Retrieving customer: {partitionKey}/{rowKey}");
 
             try
             {
-                var tableClient = new TableClient(
-                    Environment.GetEnvironmentVariable(ConnectionStringName),
-                    TableName);
+                var customer = await _tableService.GetCustomerByIdAsync(partitionKey, rowKey);
 
-                var response = await tableClient.GetEntityAsync<Customer>(partitionKey, rowKey);
+                _logger.LogInformation($"Customer retrieved successfully: {rowKey}");
 
-                log.LogInformation($"Customer retrieved successfully: {rowKey}");
-                return new OkObjectResult(response.Value);
+                var response = req.CreateResponse(HttpStatusCode.OK);
+                await response.WriteAsJsonAsync(customer);
+                return response;
             }
-            catch (RequestFailedException ex) when (ex.Status == 404)
+            catch (InvalidOperationException ex) when (ex.Message.Contains("retrieve customer"))
             {
-                log.LogWarning($"Customer not found: {partitionKey}/{rowKey}");
-                return new NotFoundObjectResult($"Customer not found");
+                _logger.LogWarning($"Customer not found: {partitionKey}/{rowKey}");
+                var notFoundResponse = req.CreateResponse(HttpStatusCode.NotFound);
+                await notFoundResponse.WriteStringAsync("Customer not found");
+                return notFoundResponse;
             }
             catch (Exception ex)
             {
-                log.LogError($"Error retrieving customer: {ex.Message}");
-                return new StatusCodeResult(StatusCodes.Status500InternalServerError);
+                _logger.LogError($"Error retrieving customer: {ex.Message}");
+                var errorResponse = req.CreateResponse(HttpStatusCode.InternalServerError);
+                await errorResponse.WriteStringAsync("Internal server error");
+                return errorResponse;
             }
         }
 
         // PUT: Update an existing customer
-        [FunctionName("UpdateCustomer")]
-        public static async Task<IActionResult> UpdateCustomer(
-            [HttpTrigger(AuthorizationLevel.Function, "put", Route = "customers/{partitionKey}/{rowKey}")] HttpRequest req,
+        [Function("UpdateCustomer")]
+        public async Task<HttpResponseData> UpdateCustomer(
+            [HttpTrigger(AuthorizationLevel.Function, "put", Route = "customers/{partitionKey}/{rowKey}")] HttpRequestData req,
             string partitionKey,
-            string rowKey,
-            ILogger log)
+            string rowKey)
         {
-            log.LogInformation($"Updating customer: {partitionKey}/{rowKey}");
+            _logger.LogInformation($"Updating customer: {partitionKey}/{rowKey}");
 
             try
             {
@@ -151,20 +161,17 @@ namespace ST10439147_CLDV6212_POE.Functions.Functions
 
                 if (updatedCustomer == null)
                 {
-                    return new BadRequestObjectResult("Invalid customer data");
+                    var badResponse = req.CreateResponse(HttpStatusCode.BadRequest);
+                    await badResponse.WriteStringAsync("Invalid customer data");
+                    return badResponse;
                 }
 
                 // Ensure the route parameters match the customer data
                 updatedCustomer.PartitionKey = partitionKey;
                 updatedCustomer.RowKey = rowKey;
 
-                var tableClient = new TableClient(
-                    Environment.GetEnvironmentVariable(ConnectionStringName),
-                    TableName);
-
                 // Get existing customer to maintain ETag
-                var existingResponse = await tableClient.GetEntityAsync<Customer>(partitionKey, rowKey);
-                var existingCustomer = existingResponse.Value;
+                var existingCustomer = await _tableService.GetCustomerByIdAsync(partitionKey, rowKey);
 
                 // Update fields
                 existingCustomer.FirstName = updatedCustomer.FirstName;
@@ -172,73 +179,71 @@ namespace ST10439147_CLDV6212_POE.Functions.Functions
                 existingCustomer.Email = updatedCustomer.Email;
                 existingCustomer.PhoneNumber = updatedCustomer.PhoneNumber;
 
-                await tableClient.UpdateEntityAsync(existingCustomer, existingCustomer.ETag, TableUpdateMode.Replace);
+                await _tableService.UpdateCustomerAsync(existingCustomer);
 
-                log.LogInformation($"Customer updated successfully: {rowKey}");
-                return new OkObjectResult(existingCustomer);
+                _logger.LogInformation($"Customer updated successfully: {rowKey}");
+
+                var response = req.CreateResponse(HttpStatusCode.OK);
+                await response.WriteAsJsonAsync(existingCustomer);
+                return response;
             }
-            catch (RequestFailedException ex) when (ex.Status == 404)
+            catch (InvalidOperationException ex) when (ex.Message.Contains("no longer exists"))
             {
-                log.LogWarning($"Customer not found: {partitionKey}/{rowKey}");
-                return new NotFoundObjectResult("Customer not found");
+                _logger.LogWarning($"Customer not found: {partitionKey}/{rowKey}");
+                var notFoundResponse = req.CreateResponse(HttpStatusCode.NotFound);
+                await notFoundResponse.WriteStringAsync("Customer not found");
+                return notFoundResponse;
             }
-            catch (RequestFailedException ex) when (ex.Status == 412)
+            catch (InvalidOperationException ex) when (ex.Message.Contains("modified by another user"))
             {
-                log.LogWarning($"Concurrency conflict for customer: {partitionKey}/{rowKey}");
-                return new ConflictObjectResult("Customer has been modified by another user");
+                _logger.LogWarning($"Concurrency conflict for customer: {partitionKey}/{rowKey}");
+                var conflictResponse = req.CreateResponse(HttpStatusCode.Conflict);
+                await conflictResponse.WriteStringAsync("Customer has been modified by another user");
+                return conflictResponse;
             }
             catch (Exception ex)
             {
-                log.LogError($"Error updating customer: {ex.Message}");
-                return new StatusCodeResult(StatusCodes.Status500InternalServerError);
+                _logger.LogError($"Error updating customer: {ex.Message}");
+                var errorResponse = req.CreateResponse(HttpStatusCode.InternalServerError);
+                await errorResponse.WriteStringAsync("Internal server error");
+                return errorResponse;
             }
         }
 
         // DELETE: Delete a customer
-        [FunctionName("DeleteCustomer")]
-        public static async Task<IActionResult> DeleteCustomer(
-            [HttpTrigger(AuthorizationLevel.Function, "delete", Route = "customers/{partitionKey}/{rowKey}")] HttpRequest req,
+        [Function("DeleteCustomer")]
+        public async Task<HttpResponseData> DeleteCustomer(
+            [HttpTrigger(AuthorizationLevel.Function, "delete", Route = "customers/{partitionKey}/{rowKey}")] HttpRequestData req,
             string partitionKey,
-            string rowKey,
-            ILogger log)
+            string rowKey)
         {
-            log.LogInformation($"Deleting customer: {partitionKey}/{rowKey}");
+            _logger.LogInformation($"Deleting customer: {partitionKey}/{rowKey}");
 
             try
             {
-                var tableClient = new TableClient(
-                    Environment.GetEnvironmentVariable(ConnectionStringName),
-                    TableName);
+                await _tableService.DeleteCustomerAsync(partitionKey, rowKey);
 
-                await tableClient.DeleteEntityAsync(partitionKey, rowKey);
+                _logger.LogInformation($"Customer deleted successfully: {rowKey}");
 
-                log.LogInformation($"Customer deleted successfully: {rowKey}");
-                return new OkObjectResult(new { message = "Customer deleted successfully" });
+                var response = req.CreateResponse(HttpStatusCode.OK);
+                await response.WriteAsJsonAsync(new { message = "Customer deleted successfully" });
+                return response;
             }
-            catch (RequestFailedException ex) when (ex.Status == 404)
+            catch (InvalidOperationException ex) when (ex.Message.Contains("delete customer"))
             {
-                log.LogWarning($"Customer not found: {partitionKey}/{rowKey}");
-                return new NotFoundObjectResult("Customer not found");
+                _logger.LogWarning($"Customer not found: {partitionKey}/{rowKey}");
+                var notFoundResponse = req.CreateResponse(HttpStatusCode.NotFound);
+                await notFoundResponse.WriteStringAsync("Customer not found");
+                return notFoundResponse;
             }
             catch (Exception ex)
             {
-                log.LogError($"Error deleting customer: {ex.Message}");
-                return new StatusCodeResult(StatusCodes.Status500InternalServerError);
+                _logger.LogError($"Error deleting customer: {ex.Message}");
+                var errorResponse = req.CreateResponse(HttpStatusCode.InternalServerError);
+                await errorResponse.WriteStringAsync("Internal server error");
+                return errorResponse;
             }
         }
-    }
-
-    // Customer model class for Azure Functions
-    public class Customer : ITableEntity
-    {
-        public string PartitionKey { get; set; }
-        public string RowKey { get; set; }
-        public string FirstName { get; set; }
-        public string LastName { get; set; }
-        public string Email { get; set; }
-        public string PhoneNumber { get; set; }
-        public DateTimeOffset? Timestamp { get; set; }
-        public ETag ETag { get; set; }
     }
 }
 //-----------------------------------------------------DDDDooooo END OF FILE oooooDDDD-----------------------------------------------------//

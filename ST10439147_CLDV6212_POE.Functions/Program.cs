@@ -15,13 +15,13 @@ var host = new HostBuilder()
         // Register TableService as a singleton
         services.AddSingleton<TableService>();
 
-        // Register BlobService as a singleton (if you have one)
+        // Register BlobService as a singleton
         services.AddSingleton<BlobService>();
 
-        // Register QueueService as a singleton (if you have one)
+        // Register QueueService as a singleton
         services.AddSingleton<QueueService>();
 
-        // Register FileService as a singleton (if you have one)
+        // Register FileService as a singleton
         services.AddSingleton<FileShareService>();
     })
     .Build();

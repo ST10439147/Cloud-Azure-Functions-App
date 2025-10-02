@@ -2,6 +2,7 @@
 using Azure.Data.Tables;
 using System;
 using System.ComponentModel.DataAnnotations;
+using System.Text.Json.Serialization;
 
 namespace ST10439147_CLDV6212_POE.Models
 {
@@ -9,13 +10,12 @@ namespace ST10439147_CLDV6212_POE.Models
     {
         public Customer()
         {
-            // Initialize RowKey with a new GUID if not already set
             RowKey = Guid.NewGuid().ToString();
             PartitionKey = "Customer";
         }
 
         public string PartitionKey { get; set; } = "Customer";
-        public string RowKey { get; set; } // Unique CustomerId (GUID)
+        public string RowKey { get; set; }
 
         [Required(ErrorMessage = "First name is required")]
         [StringLength(50, ErrorMessage = "First name cannot exceed 50 characters")]
@@ -35,9 +35,10 @@ namespace ST10439147_CLDV6212_POE.Models
         [StringLength(15, ErrorMessage = "Phone number cannot exceed 15 characters")]
         public string PhoneNumber { get; set; }
 
-        // Audit fields
+        // Audit fields - make nullable and ignore during JSON serialization if null
         public DateTimeOffset? Timestamp { get; set; }
+
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
         public ETag ETag { get; set; }
     }
 }
-//-----------------------------------------------------DDDDooooo END OF FILE oooooDDDD-----------------------------------------------------//
