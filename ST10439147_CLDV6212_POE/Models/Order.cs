@@ -1,6 +1,7 @@
 ﻿using Azure;
 using Azure.Data.Tables;
 using System.ComponentModel.DataAnnotations;
+using Newtonsoft.Json;
 
 namespace ST10439147_CLDV6212_POE.Models
 {
@@ -44,7 +45,10 @@ namespace ST10439147_CLDV6212_POE.Models
         public string Status { get; set; } = "Pending"; // e.g. Pending, Processing, Shipped, Completed, Cancelled
 
         // Audit fields
+        [JsonIgnore] // Add this
         public DateTimeOffset? Timestamp { get; set; }
+
+        [JsonIgnore] // Add this
         public ETag ETag { get; set; }
     }
 }

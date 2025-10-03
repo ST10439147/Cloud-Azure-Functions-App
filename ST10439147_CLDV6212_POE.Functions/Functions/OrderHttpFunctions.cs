@@ -5,11 +5,10 @@
 
 using System;
 using System.IO;
+using System.Net;
 using System.Threading.Tasks;
-using Microsoft.AspNetCore.Mvc;
-using Microsoft.Azure.WebJobs;
-using Microsoft.Azure.WebJobs.Extensions.Http;
-using Microsoft.AspNetCore.Http;
+using Microsoft.Azure.Functions.Worker;
+using Microsoft.Azure.Functions.Worker.Http;
 using Microsoft.Extensions.Logging;
 using Newtonsoft.Json;
 using ST10439147_CLDV6212_POE.Models;
@@ -17,61 +16,76 @@ using ST10439147_CLDV6212_POE.Services;
 
 namespace ST10439147_CLDV6212_POE.Functions
 {
-    public class OrderFunctions
+    /// <summary>
+    /// HTTP-triggered Azure Functions for Order operations (Isolated Worker Model)
+    /// Handles order creation, queuing, and status monitoring
+    /// </summary>
+    public class OrderHttpFunctions
     {
         private readonly TableService _tableService;
         private readonly QueueService _queueService;
+        private readonly ILogger<OrderHttpFunctions> _logger;
 
-        // Constructor with dependency injection
-        public OrderFunctions(TableService tableService, QueueService queueService)
+        public OrderHttpFunctions(TableService tableService, QueueService queueService, ILogger<OrderHttpFunctions> logger)
         {
             _tableService = tableService ?? throw new ArgumentNullException(nameof(tableService));
             _queueService = queueService ?? throw new ArgumentNullException(nameof(queueService));
+            _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         }
 
         //--------------------------------------------------------------------------------------------------------------------------------------------------------------//
         // Function 1: Store Order Information to Azure Tables
-        // HTTP Trigger function that accepts order data and stores it in Azure Table Storage
-        // Returns appropriate status codes and messages
-        [FunctionName("StoreOrder")]
-        public async Task<IActionResult> StoreOrder(
-            [HttpTrigger(AuthorizationLevel.Function, "post", Route = "orders")] HttpRequest req,
-            ILogger log)
+        [Function("StoreOrder")]
+        public async Task<HttpResponseData> StoreOrder(
+            [HttpTrigger(AuthorizationLevel.Function, "post", Route = "orders")] HttpRequestData req)
         {
-            log.LogInformation("StoreOrder function triggered");
+            _logger.LogInformation("StoreOrder function triggered");
 
             try
             {
-                // Read request body
                 string requestBody = await new StreamReader(req.Body).ReadToEndAsync();
-                var order = JsonConvert.DeserializeObject<Order>(requestBody);
+                var settings = new JsonSerializerSettings
+                {
+                    NullValueHandling = NullValueHandling.Ignore,
+                    MissingMemberHandling = MissingMemberHandling.Ignore
+                };
+                var order = JsonConvert.DeserializeObject<Order>(requestBody, settings);
 
-                // Validate order data
                 if (order == null)
                 {
-                    log.LogWarning("Invalid order data received");
-                    return new BadRequestObjectResult(new { message = "Invalid order data" });
+                    _logger.LogWarning("Invalid order data received");
+                    var badResponse = req.CreateResponse(HttpStatusCode.BadRequest);
+                    await badResponse.WriteAsJsonAsync(new { message = "Invalid order data" });
+                    return badResponse;
                 }
 
                 // Validate required fields
                 if (string.IsNullOrEmpty(order.CustomerId))
                 {
-                    return new BadRequestObjectResult(new { message = "CustomerId is required" });
+                    var response = req.CreateResponse(HttpStatusCode.BadRequest);
+                    await response.WriteAsJsonAsync(new { message = "CustomerId is required" });
+                    return response;
                 }
 
                 if (string.IsNullOrEmpty(order.ProductId))
                 {
-                    return new BadRequestObjectResult(new { message = "ProductId is required" });
+                    var response = req.CreateResponse(HttpStatusCode.BadRequest);
+                    await response.WriteAsJsonAsync(new { message = "ProductId is required" });
+                    return response;
                 }
 
                 if (order.Quantity <= 0)
                 {
-                    return new BadRequestObjectResult(new { message = "Quantity must be greater than 0" });
+                    var response = req.CreateResponse(HttpStatusCode.BadRequest);
+                    await response.WriteAsJsonAsync(new { message = "Quantity must be greater than 0" });
+                    return response;
                 }
 
                 if (order.TotalPrice <= 0)
                 {
-                    return new BadRequestObjectResult(new { message = "TotalPrice must be greater than 0" });
+                    var response = req.CreateResponse(HttpStatusCode.BadRequest);
+                    await response.WriteAsJsonAsync(new { message = "TotalPrice must be greater than 0" });
+                    return response;
                 }
 
                 // Set default values
@@ -88,105 +102,107 @@ namespace ST10439147_CLDV6212_POE.Functions
                 order.OrderDate = DateTime.UtcNow;
                 order.Status = "Pending";
 
-                // Store order in Azure Table Storage
                 await _tableService.InsertOrderAsync(order);
 
-                log.LogInformation("Order stored successfully with ID: {OrderId}", order.RowKey);
+                _logger.LogInformation("Order stored successfully with ID: {OrderId}", order.RowKey);
 
-                return new OkObjectResult(new
+                var successResponse = req.CreateResponse(HttpStatusCode.OK);
+                await successResponse.WriteAsJsonAsync(new
                 {
                     message = "Order stored successfully",
                     orderId = order.RowKey,
                     orderDate = order.OrderDate
                 });
+                return successResponse;
             }
             catch (Exception ex)
             {
-                log.LogError(ex, "Error storing order");
-                return new StatusCodeResult(StatusCodes.Status500InternalServerError);
+                _logger.LogError(ex, "Error storing order");
+                return req.CreateResponse(HttpStatusCode.InternalServerError);
             }
         }
 
         //--------------------------------------------------------------------------------------------------------------------------------------------------------------//
         // Function 2: Write Order Message to Queue
-        // HTTP Trigger function that sends order messages to the order queue
-        // Accepts OrderMessage object and queues it for processing
-        [FunctionName("QueueOrderMessage")]
-        public async Task<IActionResult> QueueOrderMessage(
-            [HttpTrigger(AuthorizationLevel.Function, "post", Route = "orders/queue")] HttpRequest req,
-            ILogger log)
+        [Function("QueueOrderMessage")]
+        public async Task<HttpResponseData> QueueOrderMessage(
+            [HttpTrigger(AuthorizationLevel.Function, "post", Route = "orders/queue")] HttpRequestData req)
         {
-            log.LogInformation("QueueOrderMessage function triggered");
+            _logger.LogInformation("QueueOrderMessage function triggered");
 
             try
             {
-                // Read request body
                 string requestBody = await new StreamReader(req.Body).ReadToEndAsync();
                 var orderMessage = JsonConvert.DeserializeObject<OrderMessage>(requestBody);
 
-                // Validate order message
                 if (orderMessage == null)
                 {
-                    log.LogWarning("Invalid order message received");
-                    return new BadRequestObjectResult(new { message = "Invalid order message data" });
+                    _logger.LogWarning("Invalid order message received");
+                    var badResponse = req.CreateResponse(HttpStatusCode.BadRequest);
+                    await badResponse.WriteAsJsonAsync(new { message = "Invalid order message data" });
+                    return badResponse;
                 }
 
                 // Validate required fields
                 if (string.IsNullOrEmpty(orderMessage.OrderId))
                 {
-                    return new BadRequestObjectResult(new { message = "OrderId is required" });
+                    var response = req.CreateResponse(HttpStatusCode.BadRequest);
+                    await response.WriteAsJsonAsync(new { message = "OrderId is required" });
+                    return response;
                 }
 
                 if (string.IsNullOrEmpty(orderMessage.CustomerId))
                 {
-                    return new BadRequestObjectResult(new { message = "CustomerId is required" });
+                    var response = req.CreateResponse(HttpStatusCode.BadRequest);
+                    await response.WriteAsJsonAsync(new { message = "CustomerId is required" });
+                    return response;
                 }
 
                 if (string.IsNullOrEmpty(orderMessage.ProductId))
                 {
-                    return new BadRequestObjectResult(new { message = "ProductId is required" });
+                    var response = req.CreateResponse(HttpStatusCode.BadRequest);
+                    await response.WriteAsJsonAsync(new { message = "ProductId is required" });
+                    return response;
                 }
 
-                // Send message to order queue
                 await _queueService.SendOrderMessageAsync(orderMessage);
 
-                log.LogInformation("Order message queued successfully for OrderId: {OrderId}", orderMessage.OrderId);
+                _logger.LogInformation("Order message queued successfully for OrderId: {OrderId}", orderMessage.OrderId);
 
-                return new OkObjectResult(new
+                var successResponse = req.CreateResponse(HttpStatusCode.OK);
+                await successResponse.WriteAsJsonAsync(new
                 {
                     message = "Order message queued successfully",
                     orderId = orderMessage.OrderId,
                     action = orderMessage.Action
                 });
+                return successResponse;
             }
             catch (Exception ex)
             {
-                log.LogError(ex, "Error queuing order message");
-                return new StatusCodeResult(StatusCodes.Status500InternalServerError);
+                _logger.LogError(ex, "Error queuing order message");
+                return req.CreateResponse(HttpStatusCode.InternalServerError);
             }
         }
 
         //--------------------------------------------------------------------------------------------------------------------------------------------------------------//
         // Function 3: Write Inventory Message to Queue
-        // HTTP Trigger function that sends inventory update messages to the inventory queue
-        // Accepts order information and creates appropriate inventory message
-        [FunctionName("QueueInventoryMessage")]
-        public async Task<IActionResult> QueueInventoryMessage(
-            [HttpTrigger(AuthorizationLevel.Function, "post", Route = "inventory/queue")] HttpRequest req,
-            ILogger log)
+        [Function("QueueInventoryMessage")]
+        public async Task<HttpResponseData> QueueInventoryMessage(
+            [HttpTrigger(AuthorizationLevel.Function, "post", Route = "inventory/queue")] HttpRequestData req)
         {
-            log.LogInformation("QueueInventoryMessage function triggered");
+            _logger.LogInformation("QueueInventoryMessage function triggered");
 
             try
             {
-                // Read request body
                 string requestBody = await new StreamReader(req.Body).ReadToEndAsync();
                 dynamic data = JsonConvert.DeserializeObject(requestBody);
 
-                // Validate required fields
                 if (data == null)
                 {
-                    return new BadRequestObjectResult(new { message = "Invalid data" });
+                    var badResponse = req.CreateResponse(HttpStatusCode.BadRequest);
+                    await badResponse.WriteAsJsonAsync(new { message = "Invalid data" });
+                    return badResponse;
                 }
 
                 string orderId = data.orderId;
@@ -196,60 +212,61 @@ namespace ST10439147_CLDV6212_POE.Functions
 
                 if (string.IsNullOrEmpty(orderId) || string.IsNullOrEmpty(productId) || quantity <= 0)
                 {
-                    return new BadRequestObjectResult(new
+                    var badResponse = req.CreateResponse(HttpStatusCode.BadRequest);
+                    await badResponse.WriteAsJsonAsync(new
                     {
                         message = "OrderId, ProductId, and valid Quantity are required"
                     });
+                    return badResponse;
                 }
 
-                // Create inventory message
                 var inventoryMessage = $"{action} order {orderId} - Product: {productId}, Quantity: {quantity}, Timestamp: {DateTime.UtcNow:yyyy-MM-dd HH:mm:ss}";
 
-                // Send message to inventory queue
                 await _queueService.SendInventoryMessageAsync(inventoryMessage);
 
-                log.LogInformation("Inventory message queued for OrderId: {OrderId}", orderId);
+                _logger.LogInformation("Inventory message queued for OrderId: {OrderId}", orderId);
 
-                return new OkObjectResult(new
+                var successResponse = req.CreateResponse(HttpStatusCode.OK);
+                await successResponse.WriteAsJsonAsync(new
                 {
                     message = "Inventory message queued successfully",
                     orderId = orderId,
                     productId = productId,
                     quantity = quantity
                 });
+                return successResponse;
             }
             catch (Exception ex)
             {
-                log.LogError(ex, "Error queuing inventory message");
-                return new StatusCodeResult(StatusCodes.Status500InternalServerError);
+                _logger.LogError(ex, "Error queuing inventory message");
+                return req.CreateResponse(HttpStatusCode.InternalServerError);
             }
         }
 
         //--------------------------------------------------------------------------------------------------------------------------------------------------------------//
         // Function 4: Process Complete Order (Combined Operation)
-        // HTTP Trigger function that handles the complete order flow:
-        // 1. Stores order in Table Storage
-        // 2. Sends order message to queue
-        // 3. Sends inventory message to queue
-        // This is a robust function that handles the entire order creation process
-        [FunctionName("ProcessCompleteOrder")]
-        public async Task<IActionResult> ProcessCompleteOrder(
-            [HttpTrigger(AuthorizationLevel.Function, "post", Route = "orders/process")] HttpRequest req,
-            ILogger log)
+        [Function("ProcessCompleteOrder")]
+        public async Task<HttpResponseData> ProcessCompleteOrder(
+            [HttpTrigger(AuthorizationLevel.Function, "post", Route = "orders/process")] HttpRequestData req)
         {
-            log.LogInformation("ProcessCompleteOrder function triggered");
+            _logger.LogInformation("ProcessCompleteOrder function triggered");
 
             try
             {
-                // Read request body
                 string requestBody = await new StreamReader(req.Body).ReadToEndAsync();
-                var order = JsonConvert.DeserializeObject<Order>(requestBody);
+                var settings = new JsonSerializerSettings
+                {
+                    NullValueHandling = NullValueHandling.Ignore,
+                    MissingMemberHandling = MissingMemberHandling.Ignore
+                };
+                var order = JsonConvert.DeserializeObject<Order>(requestBody, settings);
 
-                // Validate order data
                 if (order == null)
                 {
-                    log.LogWarning("Invalid order data received");
-                    return new BadRequestObjectResult(new { message = "Invalid order data" });
+                    _logger.LogWarning("Invalid order data received");
+                    var badResponse = req.CreateResponse(HttpStatusCode.BadRequest);
+                    await badResponse.WriteAsJsonAsync(new { message = "Invalid order data" });
+                    return badResponse;
                 }
 
                 // Validate required fields
@@ -258,10 +275,12 @@ namespace ST10439147_CLDV6212_POE.Functions
                     order.Quantity <= 0 ||
                     order.TotalPrice <= 0)
                 {
-                    return new BadRequestObjectResult(new
+                    var badResponse = req.CreateResponse(HttpStatusCode.BadRequest);
+                    await badResponse.WriteAsJsonAsync(new
                     {
                         message = "CustomerId, ProductId, Quantity, and TotalPrice are required and must be valid"
                     });
+                    return badResponse;
                 }
 
                 // Set default values
@@ -280,7 +299,7 @@ namespace ST10439147_CLDV6212_POE.Functions
 
                 // Step 1: Store order in Table Storage
                 await _tableService.InsertOrderAsync(order);
-                log.LogInformation("Order stored in table: {OrderId}", order.RowKey);
+                _logger.LogInformation("Order stored in table: {OrderId}", order.RowKey);
 
                 // Step 2: Send order message to queue
                 var orderMessage = new OrderMessage
@@ -295,14 +314,15 @@ namespace ST10439147_CLDV6212_POE.Functions
                 };
 
                 await _queueService.SendOrderMessageAsync(orderMessage);
-                log.LogInformation("Order message queued: {OrderId}", order.RowKey);
+                _logger.LogInformation("Order message queued: {OrderId}", order.RowKey);
 
                 // Step 3: Send inventory message to queue
                 var inventoryMessage = $"Processing order {order.RowKey} - Product: {order.ProductId}, Quantity: {order.Quantity}, Timestamp: {DateTime.UtcNow:yyyy-MM-dd HH:mm:ss}";
                 await _queueService.SendInventoryMessageAsync(inventoryMessage);
-                log.LogInformation("Inventory message queued: {OrderId}", order.RowKey);
+                _logger.LogInformation("Inventory message queued: {OrderId}", order.RowKey);
 
-                return new OkObjectResult(new
+                var successResponse = req.CreateResponse(HttpStatusCode.OK);
+                await successResponse.WriteAsJsonAsync(new
                 {
                     message = "Order processed successfully",
                     orderId = order.RowKey,
@@ -315,35 +335,33 @@ namespace ST10439147_CLDV6212_POE.Functions
                         inventoryMessageQueued = true
                     }
                 });
+                return successResponse;
             }
             catch (Exception ex)
             {
-                log.LogError(ex, "Error processing complete order");
-                return new StatusCodeResult(StatusCodes.Status500InternalServerError);
+                _logger.LogError(ex, "Error processing complete order");
+                return req.CreateResponse(HttpStatusCode.InternalServerError);
             }
         }
 
         //--------------------------------------------------------------------------------------------------------------------------------------------------------------//
-        // Bonus Function: Get Order Queue Status
-        // HTTP Trigger function that retrieves the current status of both queues
-        // Useful for monitoring and debugging
-        [FunctionName("GetQueueStatus")]
-        public async Task<IActionResult> GetQueueStatus(
-            [HttpTrigger(AuthorizationLevel.Function, "get", Route = "orders/queues/status")] HttpRequest req,
-            ILogger log)
+        // Function 5: Get Queue Status
+        [Function("GetQueueStatus")]
+        public async Task<HttpResponseData> GetQueueStatus(
+            [HttpTrigger(AuthorizationLevel.Function, "get", Route = "orders/queues/status")] HttpRequestData req)
         {
-            log.LogInformation("GetQueueStatus function triggered");
+            _logger.LogInformation("GetQueueStatus function triggered");
 
             try
             {
-                // Get queue lengths
                 var orderQueueLength = await _queueService.GetQueueLengthAsync("ordermsg");
                 var inventoryQueueLength = await _queueService.GetQueueLengthAsync("inventory-msg");
 
-                log.LogInformation("Queue status - Orders: {OrderCount}, Inventory: {InventoryCount}",
+                _logger.LogInformation("Queue status - Orders: {OrderCount}, Inventory: {InventoryCount}",
                     orderQueueLength, inventoryQueueLength);
 
-                return new OkObjectResult(new
+                var response = req.CreateResponse(HttpStatusCode.OK);
+                await response.WriteAsJsonAsync(new
                 {
                     orderQueue = new
                     {
@@ -357,11 +375,12 @@ namespace ST10439147_CLDV6212_POE.Functions
                     },
                     timestamp = DateTime.UtcNow
                 });
+                return response;
             }
             catch (Exception ex)
             {
-                log.LogError(ex, "Error retrieving queue status");
-                return new StatusCodeResult(StatusCodes.Status500InternalServerError);
+                _logger.LogError(ex, "Error retrieving queue status");
+                return req.CreateResponse(HttpStatusCode.InternalServerError);
             }
         }
     }
