@@ -58,7 +58,7 @@ namespace ST10439147_CLDV6212_POE.Controllers
                     return View(products);
                 }
 
-                _logger.LogError($"Error retrieving products: {response.StatusCode}");
+                _logger.LogError("Error retrieving products: {StatusCode}", response.StatusCode);
                 ViewBag.Error = "Unable to load products. Please try again.";
                 return View(new List<Product>());
             }
@@ -82,91 +82,81 @@ namespace ST10439147_CLDV6212_POE.Controllers
         [ValidateAntiForgeryToken]
         public async Task<IActionResult> Create(Product product, IFormFile? imageFile)
         {
-            // Remove ImageUrl from ModelState validation since it's optional
             ModelState.Remove("ImageUrl");
             ModelState.Remove("RowKey");
 
-            if (ModelState.IsValid)
+            if (!ModelState.IsValid)
             {
+                return View(product);
+            }
+
+            try
+            {
+                _logger.LogInformation("Creating new product: {ProductName}", product.Name);
+
+                using var formData = new MultipartFormDataContent();
+
+                formData.Add(new StringContent(product.Name ?? string.Empty), "Name");
+                formData.Add(new StringContent(product.Description ?? string.Empty), "Description");
+                formData.Add(new StringContent(product.Price.ToString("F2")), "Price");
+                formData.Add(new StringContent(product.StockQuantity.ToString()), "StockQuantity");
+
+                if (imageFile != null && imageFile.Length > 0)
+                {
+                    var fileContent = new StreamContent(imageFile.OpenReadStream());
+                    fileContent.Headers.ContentType = new MediaTypeHeaderValue(imageFile.ContentType);
+                    formData.Add(fileContent, "imageFile", imageFile.FileName);
+
+                    _logger.LogInformation("Adding image file: {FileName}, Size: {Size} bytes",
+                        imageFile.FileName, imageFile.Length);
+                }
+
+                var request = new HttpRequestMessage(HttpMethod.Post, $"{_functionBaseUrl}/products");
+                request.Headers.Add("x-functions-key", _functionKey);
+                request.Content = formData;
+
+                var response = await _httpClient.SendAsync(request);
+
+                if (response.IsSuccessStatusCode)
+                {
+                    _logger.LogInformation("Product created successfully");
+                    TempData["Success"] = "Product added successfully!";
+                    return RedirectToAction(nameof(Index));
+                }
+
+                var errorContent = await response.Content.ReadAsStringAsync();
+                _logger.LogError("Error creating product: {StatusCode} - {ErrorContent}",
+                    response.StatusCode, errorContent);
+
                 try
                 {
-                    _logger.LogInformation("Creating new product: {ProductName}", product.Name);
+                    var errorObj = JsonSerializer.Deserialize<Dictionary<string, string>>(errorContent,
+                        new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
 
-                    // Create multipart form data
-                    using var formData = new MultipartFormDataContent();
-
-                    // Add product fields
-                    formData.Add(new StringContent(product.Name ?? string.Empty), "Name");
-                    formData.Add(new StringContent(product.Description ?? string.Empty), "Description");
-                    formData.Add(new StringContent(product.Price.ToString("F2")), "Price");
-                    formData.Add(new StringContent(product.StockQuantity.ToString()), "StockQuantity");
-
-                    // Add image file if provided
-                    if (imageFile != null && imageFile.Length > 0)
+                    if (errorObj != null && errorObj.ContainsKey("error"))
                     {
-                        var fileContent = new StreamContent(imageFile.OpenReadStream());
-                        fileContent.Headers.ContentType = new MediaTypeHeaderValue(imageFile.ContentType);
-                        formData.Add(fileContent, "imageFile", imageFile.FileName);
-
-                        _logger.LogInformation("Adding image file: {FileName}, Size: {Size} bytes",
-                            imageFile.FileName, imageFile.Length);
+                        ModelState.AddModelError(string.Empty, errorObj["error"]);
                     }
-
-                    var request = new HttpRequestMessage(HttpMethod.Post, $"{_functionBaseUrl}/products");
-                    request.Headers.Add("x-functions-key", _functionKey);
-                    request.Content = formData;
-
-                    _logger.LogInformation("Sending request to Azure Function: {Url}", request.RequestUri);
-                    var response = await _httpClient.SendAsync(request);
-
-                    if (response.IsSuccessStatusCode)
+                    else
                     {
-                        _logger.LogInformation("Product created successfully");
-                        TempData["Success"] = "Product added successfully!";
-                        return RedirectToAction(nameof(Index));
-                    }
-
-                    // Handle error responses
-                    var errorContent = await response.Content.ReadAsStringAsync();
-                    _logger.LogError($"Error creating product: {response.StatusCode} - {errorContent}");
-
-                    try
-                    {
-                        var errorObj = JsonSerializer.Deserialize<Dictionary<string, string>>(errorContent,
-                            new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
-
-                        if (errorObj != null && errorObj.ContainsKey("error"))
-                        {
-                            ModelState.AddModelError(string.Empty, errorObj["error"]);
-                        }
-                        else
-                        {
-                            ModelState.AddModelError(string.Empty, "Unable to save product. Please try again.");
-                        }
-                    }
-                    catch
-                    {
-                        ModelState.AddModelError(string.Empty, $"Unable to save product. Server returned: {response.StatusCode}");
+                        ModelState.AddModelError(string.Empty, "Unable to save product. Please try again.");
                     }
                 }
-                catch (HttpRequestException httpEx)
+                catch
                 {
-                    _logger.LogError(httpEx, "HTTP request error creating product: {ProductName}", product.Name);
-                    ModelState.AddModelError(string.Empty, "Unable to connect to the server. Please try again.");
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogError(ex, "Error creating product: {ProductName}", product.Name);
-                    ModelState.AddModelError(string.Empty, "Unable to save product. Please try again.");
+                    ModelState.AddModelError(string.Empty,
+                        $"Unable to save product. Server returned: {response.StatusCode}");
                 }
             }
-            else
+            catch (HttpRequestException httpEx)
             {
-                foreach (var modelError in ModelState.Where(x => x.Key != "ImageUrl" && x.Key != "RowKey")
-                    .SelectMany(x => x.Value.Errors))
-                {
-                    _logger.LogWarning("Model validation error: {Error}", modelError.ErrorMessage);
-                }
+                _logger.LogError(httpEx, "HTTP request error creating product: {ProductName}", product.Name);
+                ModelState.AddModelError(string.Empty, "Unable to connect to the server. Please try again.");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error creating product: {ProductName}", product.Name);
+                ModelState.AddModelError(string.Empty, "An unexpected error occurred. Please try again.");
             }
 
             return View(product);
@@ -212,7 +202,7 @@ namespace ST10439147_CLDV6212_POE.Controllers
                     return View(product);
                 }
 
-                _logger.LogError($"Error retrieving product: {response.StatusCode}");
+                _logger.LogError("Error retrieving product: {StatusCode}", response.StatusCode);
                 ViewBag.Error = "Unable to load product details.";
                 return View();
             }
@@ -265,7 +255,7 @@ namespace ST10439147_CLDV6212_POE.Controllers
                     return View(product);
                 }
 
-                _logger.LogError($"Error loading product: {response.StatusCode}");
+                _logger.LogError("Error loading product: {StatusCode}", response.StatusCode);
                 TempData["Error"] = "Unable to load product for editing.";
                 return RedirectToAction(nameof(Index));
             }
@@ -289,109 +279,101 @@ namespace ST10439147_CLDV6212_POE.Controllers
 
             if (id != product.RowKey)
             {
-                _logger.LogWarning("ID mismatch in Edit: URL ID {UrlId}, Product RowKey {RowKey}", id, product.RowKey);
+                _logger.LogWarning("ID mismatch in Edit: URL ID {UrlId}, Product RowKey {RowKey}",
+                    id, product.RowKey);
                 return BadRequest("ID mismatch");
             }
 
-            // Remove ImageUrl from ModelState validation since it's optional
             ModelState.Remove("ImageUrl");
 
-            if (ModelState.IsValid)
+            if (!ModelState.IsValid)
             {
+                return View(product);
+            }
+
+            try
+            {
+                _logger.LogInformation("Updating product: {ProductId}", id);
+
+                using var formData = new MultipartFormDataContent();
+
+                formData.Add(new StringContent(product.Name ?? string.Empty), "Name");
+                formData.Add(new StringContent(product.Description ?? string.Empty), "Description");
+                formData.Add(new StringContent(product.Price.ToString("F2")), "Price");
+                formData.Add(new StringContent(product.StockQuantity.ToString()), "StockQuantity");
+
+                if (imageFile != null && imageFile.Length > 0)
+                {
+                    var fileContent = new StreamContent(imageFile.OpenReadStream());
+                    fileContent.Headers.ContentType = new MediaTypeHeaderValue(imageFile.ContentType);
+                    formData.Add(fileContent, "imageFile", imageFile.FileName);
+
+                    _logger.LogInformation("Adding new image file for update: {FileName}, Size: {Size} bytes",
+                        imageFile.FileName, imageFile.Length);
+                }
+
+                var request = new HttpRequestMessage(HttpMethod.Put,
+                    $"{_functionBaseUrl}/products/Product/{id}");
+                request.Headers.Add("x-functions-key", _functionKey);
+                request.Content = formData;
+
+                var response = await _httpClient.SendAsync(request);
+
+                if (response.IsSuccessStatusCode)
+                {
+                    _logger.LogInformation("Product updated successfully: {ProductId}", id);
+                    TempData["Success"] = "Product updated successfully!";
+                    return RedirectToAction(nameof(Index));
+                }
+
+                if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
+                {
+                    _logger.LogWarning("Product not found during update: {ProductId}", id);
+                    TempData["Error"] = "The product no longer exists.";
+                    return RedirectToAction(nameof(Index));
+                }
+
+                if (response.StatusCode == System.Net.HttpStatusCode.Conflict)
+                {
+                    _logger.LogWarning("Concurrency conflict updating product: {ProductId}", id);
+                    ModelState.AddModelError(string.Empty,
+                        "The product has been modified by another user. Please refresh and try again.");
+                    return View(product);
+                }
+
+                var errorContent = await response.Content.ReadAsStringAsync();
+                _logger.LogError("Error updating product: {StatusCode} - {ErrorContent}",
+                    response.StatusCode, errorContent);
+
                 try
                 {
-                    _logger.LogInformation("Updating product: {ProductId}", id);
+                    var errorObj = JsonSerializer.Deserialize<Dictionary<string, string>>(errorContent,
+                        new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
 
-                    // Create multipart form data
-                    using var formData = new MultipartFormDataContent();
-
-                    // Add product fields
-                    formData.Add(new StringContent(product.Name ?? string.Empty), "Name");
-                    formData.Add(new StringContent(product.Description ?? string.Empty), "Description");
-                    formData.Add(new StringContent(product.Price.ToString("F2")), "Price");
-                    formData.Add(new StringContent(product.StockQuantity.ToString()), "StockQuantity");
-
-                    // Add image file if provided
-                    if (imageFile != null && imageFile.Length > 0)
+                    if (errorObj != null && errorObj.ContainsKey("error"))
                     {
-                        var fileContent = new StreamContent(imageFile.OpenReadStream());
-                        fileContent.Headers.ContentType = new MediaTypeHeaderValue(imageFile.ContentType);
-                        formData.Add(fileContent, "imageFile", imageFile.FileName);
-
-                        _logger.LogInformation("Adding new image file for update: {FileName}, Size: {Size} bytes",
-                            imageFile.FileName, imageFile.Length);
+                        ModelState.AddModelError(string.Empty, errorObj["error"]);
                     }
-
-                    var request = new HttpRequestMessage(HttpMethod.Put,
-                        $"{_functionBaseUrl}/products/Product/{id}");
-                    request.Headers.Add("x-functions-key", _functionKey);
-                    request.Content = formData;
-
-                    _logger.LogInformation("Sending update request to Azure Function: {Url}", request.RequestUri);
-                    var response = await _httpClient.SendAsync(request);
-
-                    if (response.IsSuccessStatusCode)
+                    else
                     {
-                        _logger.LogInformation("Product updated successfully: {ProductId}", id);
-                        TempData["Success"] = "Product updated successfully!";
-                        return RedirectToAction(nameof(Index));
-                    }
-
-                    if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
-                    {
-                        _logger.LogWarning("Product not found during update: {ProductId}", id);
-                        TempData["Error"] = "The product no longer exists.";
-                        return RedirectToAction(nameof(Index));
-                    }
-
-                    if (response.StatusCode == System.Net.HttpStatusCode.Conflict)
-                    {
-                        _logger.LogWarning("Concurrency conflict updating product: {ProductId}", id);
-                        ModelState.AddModelError(string.Empty, "The product has been modified by another user. Please refresh and try again.");
-                        return View(product);
-                    }
-
-                    // Handle other error responses
-                    var errorContent = await response.Content.ReadAsStringAsync();
-                    _logger.LogError($"Error updating product: {response.StatusCode} - {errorContent}");
-
-                    try
-                    {
-                        var errorObj = JsonSerializer.Deserialize<Dictionary<string, string>>(errorContent,
-                            new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
-
-                        if (errorObj != null && errorObj.ContainsKey("error"))
-                        {
-                            ModelState.AddModelError(string.Empty, errorObj["error"]);
-                        }
-                        else
-                        {
-                            ModelState.AddModelError(string.Empty, "Unable to update product. Please try again.");
-                        }
-                    }
-                    catch
-                    {
-                        ModelState.AddModelError(string.Empty, $"Unable to update product. Server returned: {response.StatusCode}");
+                        ModelState.AddModelError(string.Empty, "Unable to update product. Please try again.");
                     }
                 }
-                catch (HttpRequestException httpEx)
+                catch
                 {
-                    _logger.LogError(httpEx, "HTTP request error updating product: {ProductId}", id);
-                    ModelState.AddModelError(string.Empty, "Unable to connect to the server. Please try again.");
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogError(ex, "Error updating product: {ProductId}", id);
-                    ModelState.AddModelError(string.Empty, "Unable to update product. Please try again.");
+                    ModelState.AddModelError(string.Empty,
+                        $"Unable to update product. Server returned: {response.StatusCode}");
                 }
             }
-            else
+            catch (HttpRequestException httpEx)
             {
-                foreach (var modelError in ModelState.Where(x => x.Key != "ImageUrl")
-                    .SelectMany(x => x.Value.Errors))
-                {
-                    _logger.LogWarning("Model validation error in Edit: {Error}", modelError.ErrorMessage);
-                }
+                _logger.LogError(httpEx, "HTTP request error updating product: {ProductId}", id);
+                ModelState.AddModelError(string.Empty, "Unable to connect to the server. Please try again.");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error updating product: {ProductId}", id);
+                ModelState.AddModelError(string.Empty, "An unexpected error occurred. Please try again.");
             }
 
             return View(product);
@@ -438,7 +420,7 @@ namespace ST10439147_CLDV6212_POE.Controllers
                     return View(product);
                 }
 
-                _logger.LogError($"Error loading product for delete: {response.StatusCode}");
+                _logger.LogError("Error loading product for delete: {StatusCode}", response.StatusCode);
                 TempData["Error"] = "Unable to load product for deletion.";
                 return RedirectToAction(nameof(Index));
             }
@@ -485,7 +467,8 @@ namespace ST10439147_CLDV6212_POE.Controllers
                 }
 
                 var errorContent = await response.Content.ReadAsStringAsync();
-                _logger.LogError($"Error deleting product: {response.StatusCode} - {errorContent}");
+                _logger.LogError("Error deleting product: {StatusCode} - {ErrorContent}",
+                    response.StatusCode, errorContent);
                 TempData["Error"] = "Unable to delete product. Please try again.";
                 return RedirectToAction(nameof(Index));
             }
