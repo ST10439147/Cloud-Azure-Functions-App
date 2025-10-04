@@ -2,9 +2,12 @@
 
   <PropertyGroup>
     <TargetFramework>net8.0</TargetFramework>
+	<RuntimeIdentifier>win-x64</RuntimeIdentifier>
+	<OutputPath>bin\Release\net8.0\win-x64\</OutputPath>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <Platforms>AnyCPU;x64</Platforms>
+    <BaseOutputPath>C:\ST10439147_CLDV6212_POE\ST10439147_CLDV6212_POE\bin</BaseOutputPath>
   </PropertyGroup>
 
   <ItemGroup>

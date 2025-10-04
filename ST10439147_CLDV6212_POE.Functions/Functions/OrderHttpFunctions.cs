@@ -18,7 +18,8 @@ namespace ST10439147_CLDV6212_POE.Functions
 {
     /// <summary>
     /// HTTP-triggered Azure Functions for Order operations (Isolated Worker Model)
-    /// Handles order creation, queuing, and status monitoring
+    /// SINGLE SOURCE OF TRUTH: Stock updates happen ONLY in ProcessCompleteOrder
+    /// Queue messages are for logging/monitoring only
     /// </summary>
     public class OrderHttpFunctions
     {
@@ -123,7 +124,7 @@ namespace ST10439147_CLDV6212_POE.Functions
         }
 
         //--------------------------------------------------------------------------------------------------------------------------------------------------------------//
-        // Function 2: Write Order Message to Queue
+        // Function 2: Write Order Message to Queue (for monitoring only)
         [Function("QueueOrderMessage")]
         public async Task<HttpResponseData> QueueOrderMessage(
             [HttpTrigger(AuthorizationLevel.Function, "post", Route = "orders/queue")] HttpRequestData req)
@@ -186,7 +187,7 @@ namespace ST10439147_CLDV6212_POE.Functions
         }
 
         //--------------------------------------------------------------------------------------------------------------------------------------------------------------//
-        // Function 3: Write Inventory Message to Queue
+        // Function 3: Write Inventory Message to Queue (for logging only)
         [Function("QueueInventoryMessage")]
         public async Task<HttpResponseData> QueueInventoryMessage(
             [HttpTrigger(AuthorizationLevel.Function, "post", Route = "inventory/queue")] HttpRequestData req)
@@ -245,6 +246,7 @@ namespace ST10439147_CLDV6212_POE.Functions
 
         //--------------------------------------------------------------------------------------------------------------------------------------------------------------//
         // Function 4: Process Complete Order (Combined Operation)
+        // *** SINGLE SOURCE OF TRUTH FOR STOCK UPDATES ***
         [Function("ProcessCompleteOrder")]
         public async Task<HttpResponseData> ProcessCompleteOrder(
             [HttpTrigger(AuthorizationLevel.Function, "post", Route = "orders/process")] HttpRequestData req)
@@ -297,11 +299,70 @@ namespace ST10439147_CLDV6212_POE.Functions
                 order.OrderDate = DateTime.UtcNow;
                 order.Status = "Pending";
 
+                // *** CRITICAL: Update product stock IMMEDIATELY (SINGLE SOURCE OF TRUTH) ***
+                bool stockUpdated = false;
+                int oldStock = 0;
+                int newStock = 0;
+
+                try
+                {
+                    _logger.LogInformation("Updating product stock for ProductId: {ProductId}, reducing by {Quantity}",
+                        order.ProductId, order.Quantity);
+
+                    var product = await _tableService.GetProductByIdAsync("Product", order.ProductId);
+
+                    if (product != null)
+                    {
+                        oldStock = product.StockQuantity;
+
+                        // Check if we have enough stock
+                        if (product.StockQuantity < order.Quantity)
+                        {
+                            _logger.LogWarning("Insufficient stock for product {ProductId}. Available: {Available}, Requested: {Requested}",
+                                order.ProductId, product.StockQuantity, order.Quantity);
+
+                            var insufficientStockResponse = req.CreateResponse(HttpStatusCode.BadRequest);
+                            await insufficientStockResponse.WriteAsJsonAsync(new
+                            {
+                                message = $"Insufficient stock. Available: {product.StockQuantity}, Requested: {order.Quantity}"
+                            });
+                            return insufficientStockResponse;
+                        }
+
+                        // Reduce stock
+                        product.StockQuantity -= order.Quantity;
+                        newStock = product.StockQuantity;
+
+                        await _tableService.UpdateProductAsync(product);
+                        stockUpdated = true;
+
+                        _logger.LogInformation("Product stock updated successfully: {ProductId} from {OldStock} to {NewStock}",
+                            order.ProductId, oldStock, newStock);
+                    }
+                    else
+                    {
+                        _logger.LogWarning("Product {ProductId} not found", order.ProductId);
+                        var notFoundResponse = req.CreateResponse(HttpStatusCode.NotFound);
+                        await notFoundResponse.WriteAsJsonAsync(new { message = "Product not found" });
+                        return notFoundResponse;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Failed to update product stock for ProductId: {ProductId}", order.ProductId);
+                    var errorResponse = req.CreateResponse(HttpStatusCode.InternalServerError);
+                    await errorResponse.WriteAsJsonAsync(new { message = "Failed to update product stock", error = ex.Message });
+                    return errorResponse;
+                }
+
                 // Step 1: Store order in Table Storage
                 await _tableService.InsertOrderAsync(order);
                 _logger.LogInformation("Order stored in table: {OrderId}", order.RowKey);
 
-                // Step 2: Send order message to queue
+                // Wait to ensure table storage write is committed
+                await Task.Delay(500);
+
+                // Step 2: Send order message to queue (FOR MONITORING/LOGGING ONLY - not for stock updates)
                 var orderMessage = new OrderMessage
                 {
                     OrderId = order.RowKey,
@@ -314,12 +375,12 @@ namespace ST10439147_CLDV6212_POE.Functions
                 };
 
                 await _queueService.SendOrderMessageAsync(orderMessage);
-                _logger.LogInformation("Order message queued: {OrderId}", order.RowKey);
+                _logger.LogInformation("Order message queued for monitoring: {OrderId}", order.RowKey);
 
-                // Step 3: Send inventory message to queue
-                var inventoryMessage = $"Processing order {order.RowKey} - Product: {order.ProductId}, Quantity: {order.Quantity}, Timestamp: {DateTime.UtcNow:yyyy-MM-dd HH:mm:ss}";
+                // Step 3: Send inventory message to queue (FOR LOGGING ONLY - stock already updated above)
+                var inventoryMessage = $"Stock updated for order {order.RowKey} - Product: {order.ProductId}, Quantity: {order.Quantity}, Old Stock: {oldStock}, New Stock: {newStock}, Timestamp: {DateTime.UtcNow:yyyy-MM-dd HH:mm:ss}";
                 await _queueService.SendInventoryMessageAsync(inventoryMessage);
-                _logger.LogInformation("Inventory message queued: {OrderId}", order.RowKey);
+                _logger.LogInformation("Inventory log message queued: {OrderId}", order.RowKey);
 
                 var successResponse = req.CreateResponse(HttpStatusCode.OK);
                 await successResponse.WriteAsJsonAsync(new
@@ -331,6 +392,9 @@ namespace ST10439147_CLDV6212_POE.Functions
                     details = new
                     {
                         tableStored = true,
+                        stockUpdated = stockUpdated,
+                        oldStock = oldStock,
+                        newStock = newStock,
                         orderMessageQueued = true,
                         inventoryMessageQueued = true
                     }
@@ -340,7 +404,9 @@ namespace ST10439147_CLDV6212_POE.Functions
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error processing complete order");
-                return req.CreateResponse(HttpStatusCode.InternalServerError);
+                var errorResponse = req.CreateResponse(HttpStatusCode.InternalServerError);
+                await errorResponse.WriteAsJsonAsync(new { message = "Internal server error", error = ex.Message });
+                return errorResponse;
             }
         }
 
@@ -380,6 +446,43 @@ namespace ST10439147_CLDV6212_POE.Functions
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error retrieving queue status");
+                return req.CreateResponse(HttpStatusCode.InternalServerError);
+            }
+        }
+
+        //--------------------------------------------------------------------------------------------------------------------------------------------------------------//
+        // Function 6: Move Messages from Poison Queues (Manual Recovery Tool)
+        [Function("MovePoisonMessages")]
+        public async Task<HttpResponseData> MovePoisonMessages(
+            [HttpTrigger(AuthorizationLevel.Function, "post", Route = "queues/recover-poison")] HttpRequestData req)
+        {
+            _logger.LogInformation("MovePoisonMessages function triggered");
+
+            try
+            {
+                string requestBody = await req.ReadAsStringAsync();
+                dynamic data = JsonConvert.DeserializeObject(requestBody);
+
+                string queueName = data?.queueName ?? "ordermsg";
+                string poisonQueueName = $"{queueName}-poison";
+
+                _logger.LogInformation("Attempting to move messages from {PoisonQueue} to {MainQueue}",
+                    poisonQueueName, queueName);
+
+                var response = req.CreateResponse(HttpStatusCode.OK);
+                await response.WriteAsJsonAsync(new
+                {
+                    message = "Poison queue recovery initiated",
+                    poisonQueue = poisonQueueName,
+                    targetQueue = queueName,
+                    note = "Please process poison messages manually in Azure Portal or implement recovery logic in QueueService"
+                });
+
+                return response;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error moving poison messages");
                 return req.CreateResponse(HttpStatusCode.InternalServerError);
             }
         }

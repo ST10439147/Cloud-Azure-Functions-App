@@ -3,13 +3,6 @@
 // CourseCode: CLDV6212
 // POE Part: 2
 
-//References:
-// ClaudAI - https://claude.ai/
-// ChatGPT - https://chat.openai.com/
-// W3schools - https://www.w3schools.com/
-// IIEVC School of Computer Science Youtube channel for Azure services setup and use https://www.youtube.com/@VCSOCS
-// AzureApp project done in class with lecturer
-
 using Microsoft.AspNetCore.Mvc;
 using ST10439147_CLDV6212_POE.Models;
 using ST10439147_CLDV6212_POE.Services;
@@ -26,7 +19,6 @@ namespace ST10439147_CLDV6212_POE.Controllers
         private readonly HttpClient _httpClient;
         private readonly IConfiguration _configuration;
 
-        //--------------------------------------------------------------------------------------------------------------------------------------------------------------//
         public OrderController(
             TableService tableService,
             QueueService queueService,
@@ -208,6 +200,14 @@ namespace ST10439147_CLDV6212_POE.Controllers
         //--------------------------------------------------------------------------------------------------------------------------------------------------------------//
         private async Task ProcessOrderViaFunction(Order order, string functionUrl)
         {
+            var functionKey = _configuration["AzureFunctions:FunctionKey"];
+
+            if (!string.IsNullOrEmpty(functionKey))
+            {
+                var separator = functionUrl.Contains("?") ? "&" : "?";
+                functionUrl = $"{functionUrl}{separator}code={functionKey}";
+            }
+
             var jsonContent = JsonSerializer.Serialize(order, new JsonSerializerOptions
             {
                 PropertyNamingPolicy = JsonNamingPolicy.CamelCase
@@ -215,7 +215,7 @@ namespace ST10439147_CLDV6212_POE.Controllers
 
             var content = new StringContent(jsonContent, Encoding.UTF8, "application/json");
 
-            _logger.LogInformation("Calling Azure Function at: {Url}", functionUrl);
+            _logger.LogInformation("Calling Azure Function at: {Url}", functionUrl.Replace(functionKey ?? "", "***"));
             var response = await _httpClient.PostAsync(functionUrl, content);
 
             if (!response.IsSuccessStatusCode)
@@ -247,10 +247,46 @@ namespace ST10439147_CLDV6212_POE.Controllers
             order.OrderDate = DateTime.UtcNow;
             order.Status = "Pending";
 
+            // *** FIXED: Update product stock IMMEDIATELY (single source of truth) ***
+            try
+            {
+                _logger.LogInformation("Updating product stock for ProductId: {ProductId}, reducing by {Quantity}",
+                    order.ProductId, order.Quantity);
+
+                var product = await _tableService.GetProductByIdAsync("Product", order.ProductId);
+
+                if (product != null)
+                {
+                    int oldStock = product.StockQuantity;
+
+                    // Check stock availability
+                    if (product.StockQuantity < order.Quantity)
+                    {
+                        throw new InvalidOperationException($"Insufficient stock. Available: {product.StockQuantity}, Requested: {order.Quantity}");
+                    }
+
+                    product.StockQuantity -= order.Quantity;
+
+                    await _tableService.UpdateProductAsync(product);
+
+                    _logger.LogInformation("Product stock updated successfully. ProductId: {ProductId}, Old Stock: {OldStock}, New Stock: {NewStock}",
+                        order.ProductId, oldStock, product.StockQuantity);
+                }
+                else
+                {
+                    throw new InvalidOperationException($"Product {order.ProductId} not found");
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to update product stock for ProductId: {ProductId}", order.ProductId);
+                throw; // Rethrow to prevent order creation if stock update fails
+            }
+
             // Store order
             await _tableService.InsertOrderAsync(order);
 
-            // Queue messages
+            // Queue messages for MONITORING/LOGGING only (not for stock updates)
             var orderMessage = new OrderMessage
             {
                 OrderId = order.RowKey,
@@ -264,7 +300,8 @@ namespace ST10439147_CLDV6212_POE.Controllers
 
             await _queueService.SendOrderMessageAsync(orderMessage);
 
-            var inventoryMessage = $"Processing order {order.RowKey} - Product: {order.ProductId}, Quantity: {order.Quantity}, Timestamp: {DateTime.UtcNow:yyyy-MM-dd HH:mm:ss}";
+            // Inventory message is for logging/monitoring purposes only
+            var inventoryMessage = $"Stock reduced for order {order.RowKey} - Product: {order.ProductId}, Quantity: {order.Quantity}, New Stock: [See Product Table], Timestamp: {DateTime.UtcNow:yyyy-MM-dd HH:mm:ss}";
             await _queueService.SendInventoryMessageAsync(inventoryMessage);
         }
 
@@ -280,7 +317,14 @@ namespace ST10439147_CLDV6212_POE.Controllers
                 {
                     try
                     {
-                        _logger.LogInformation("Calling Azure Function for queue status at: {Url}", functionUrl);
+                        var functionKey = _configuration["AzureFunctions:FunctionKey"];
+                        if (!string.IsNullOrEmpty(functionKey))
+                        {
+                            var separator = functionUrl.Contains("?") ? "&" : "?";
+                            functionUrl = $"{functionUrl}{separator}code={functionKey}";
+                        }
+
+                        _logger.LogInformation("Calling Azure Function for queue status at: {Url}", functionUrl.Replace(functionKey ?? "", "***"));
                         var response = await _httpClient.GetAsync(functionUrl);
 
                         if (response.IsSuccessStatusCode)
@@ -302,7 +346,6 @@ namespace ST10439147_CLDV6212_POE.Controllers
                     }
                 }
 
-                // Fallback to direct service
                 var orderQueueLength = await _queueService.GetQueueLengthAsync("ordermsg");
                 var inventoryQueueLength = await _queueService.GetQueueLengthAsync("inventory-msg");
 
@@ -322,23 +365,68 @@ namespace ST10439147_CLDV6212_POE.Controllers
 
         //--------------------------------------------------------------------------------------------------------------------------------------------------------------//
         [HttpGet]
-        public async Task<IActionResult> ViewQueueMessages(string queueName = "ordermsg")
+        public async Task<IActionResult> ViewQueueMessages(string queueName = "ordermsg", bool peek = false)
         {
             try
             {
-                var messages = await _queueService.PeekQueueMessagesAsync(queueName, 32);
-                ViewBag.QueueName = queueName;
-                ViewBag.Messages = messages;
+                _logger.LogInformation("Attempting to retrieve messages from queue: {QueueName}, Peek mode: {Peek}", queueName, peek);
 
-                _logger.LogInformation("Retrieved {Count} messages from queue: {QueueName}", messages.Count, queueName);
+                if (peek)
+                {
+                    var peekMessages = await _queueService.PeekQueueMessagesAsync(queueName, 32);
+
+                    var messageInfoList = new List<QueueMessageInfo>();
+                    for (int i = 0; i < peekMessages.Count; i++)
+                    {
+                        messageInfoList.Add(new QueueMessageInfo
+                        {
+                            MessageId = $"peek-{i}",
+                            MessageText = peekMessages[i],
+                            PopReceipt = string.Empty,
+                            InsertedOn = null,
+                            ExpiresOn = null,
+                            DequeueCount = 0
+                        });
+                    }
+
+                    ViewBag.QueueName = queueName;
+                    ViewBag.Messages = messageInfoList;
+                    ViewBag.IsReadOnly = true;
+                    ViewBag.MessageCount = peekMessages.Count;
+
+                    _logger.LogInformation("Successfully peeked {Count} messages from queue: {QueueName}", peekMessages.Count, queueName);
+                }
+                else
+                {
+                    var messages = await _queueService.GetQueueMessagesAsync(queueName, 32);
+
+                    _logger.LogInformation("Successfully retrieved {Count} messages from queue: {QueueName}",
+                        messages.Count, queueName);
+
+                    ViewBag.QueueName = queueName;
+                    ViewBag.Messages = messages;
+                    ViewBag.IsReadOnly = false;
+                    ViewBag.MessageCount = messages.Count;
+                }
+
                 return View();
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error retrieving messages from queue: {QueueName}", queueName);
-                ViewBag.Error = $"Unable to retrieve messages from queue '{queueName}'. {ex.Message}";
+                _logger.LogError(ex, "Error retrieving messages from queue: {QueueName}. Details: {Message}",
+                    queueName, ex.Message);
+
+                if (ex.InnerException != null)
+                {
+                    _logger.LogError("Inner exception: {InnerMessage}", ex.InnerException.Message);
+                }
+
+                ViewBag.Error = $"Unable to retrieve messages from queue '{queueName}'. Error: {ex.Message}";
                 ViewBag.QueueName = queueName;
-                ViewBag.Messages = new List<string>();
+                ViewBag.Messages = new List<QueueMessageInfo>();
+                ViewBag.IsReadOnly = false;
+                ViewBag.MessageCount = 0;
+
                 return View();
             }
         }
@@ -432,6 +520,33 @@ namespace ST10439147_CLDV6212_POE.Controllers
                         return NotFound();
                     }
 
+                    // Handle stock adjustments if quantity changed
+                    if (existingOrder.Quantity != order.Quantity || existingOrder.ProductId != order.ProductId)
+                    {
+                        // Restore old stock
+                        var oldProduct = await _tableService.GetProductByIdAsync("Product", existingOrder.ProductId);
+                        if (oldProduct != null)
+                        {
+                            oldProduct.StockQuantity += existingOrder.Quantity;
+                            await _tableService.UpdateProductAsync(oldProduct);
+                        }
+
+                        // Reduce new stock
+                        var newProduct = await _tableService.GetProductByIdAsync("Product", order.ProductId);
+                        if (newProduct != null)
+                        {
+                            if (newProduct.StockQuantity < order.Quantity)
+                            {
+                                ModelState.AddModelError("Quantity", $"Only {newProduct.StockQuantity} items available");
+                                ViewBag.Customers = await _tableService.GetAllCustomersAsync();
+                                ViewBag.Products = await _tableService.GetAllProductsAsync();
+                                return View(order);
+                            }
+                            newProduct.StockQuantity -= order.Quantity;
+                            await _tableService.UpdateProductAsync(newProduct);
+                        }
+                    }
+
                     existingOrder.CustomerId = order.CustomerId;
                     existingOrder.ProductId = order.ProductId;
                     existingOrder.Quantity = order.Quantity;
@@ -440,7 +555,7 @@ namespace ST10439147_CLDV6212_POE.Controllers
 
                     await _tableService.UpdateOrderAsync(existingOrder);
 
-                    // Try to send update messages via Azure Functions
+                    // Send update messages for logging
                     await SendOrderUpdateMessages(existingOrder, "UpdateOrder");
 
                     TempData["Success"] = "Order updated successfully!";
@@ -509,12 +624,21 @@ namespace ST10439147_CLDV6212_POE.Controllers
 
                 if (order != null)
                 {
+                    // Restore stock when order is cancelled
+                    var product = await _tableService.GetProductByIdAsync("Product", order.ProductId);
+                    if (product != null)
+                    {
+                        product.StockQuantity += order.Quantity;
+                        await _tableService.UpdateProductAsync(product);
+                        _logger.LogInformation("Stock restored for product {ProductId}: +{Quantity}", order.ProductId, order.Quantity);
+                    }
+
                     await _tableService.DeleteOrderAsync(partitionKey, rowKey);
 
-                    // Try to send cancellation messages via Azure Functions
+                    // Send cancellation messages for logging
                     await SendOrderUpdateMessages(order, "CancelOrder");
 
-                    TempData["Success"] = "Order deleted successfully!";
+                    TempData["Success"] = "Order deleted and stock restored successfully!";
                 }
                 else
                 {
@@ -538,10 +662,17 @@ namespace ST10439147_CLDV6212_POE.Controllers
             {
                 var queueOrderUrl = _configuration["AzureFunctions:QueueOrderMessageUrl"];
                 var queueInventoryUrl = _configuration["AzureFunctions:QueueInventoryMessageUrl"];
+                var functionKey = _configuration["AzureFunctions:FunctionKey"];
 
                 // Send order message
                 if (!string.IsNullOrEmpty(queueOrderUrl))
                 {
+                    if (!string.IsNullOrEmpty(functionKey))
+                    {
+                        var separator = queueOrderUrl.Contains("?") ? "&" : "?";
+                        queueOrderUrl = $"{queueOrderUrl}{separator}code={functionKey}";
+                    }
+
                     var orderMessage = new OrderMessage
                     {
                         OrderId = order.RowKey,
@@ -562,7 +693,6 @@ namespace ST10439147_CLDV6212_POE.Controllers
                 }
                 else
                 {
-                    // Fallback to direct queue service
                     var orderMessage = new OrderMessage
                     {
                         OrderId = order.RowKey,
@@ -576,15 +706,21 @@ namespace ST10439147_CLDV6212_POE.Controllers
                     await _queueService.SendOrderMessageAsync(orderMessage);
                 }
 
-                // Send inventory message
+                // Send inventory message for logging only
                 if (!string.IsNullOrEmpty(queueInventoryUrl))
                 {
+                    if (!string.IsNullOrEmpty(functionKey))
+                    {
+                        var separator = queueInventoryUrl.Contains("?") ? "&" : "?";
+                        queueInventoryUrl = $"{queueInventoryUrl}{separator}code={functionKey}";
+                    }
+
                     var inventoryData = new
                     {
                         orderId = order.RowKey,
                         productId = order.ProductId,
                         quantity = order.Quantity,
-                        action = action == "CancelOrder" ? "Order cancelled" : "Order updated"
+                        action = action == "CancelOrder" ? "Order cancelled - stock restored" : "Order updated"
                     };
 
                     var jsonContent = JsonSerializer.Serialize(inventoryData, new JsonSerializerOptions
@@ -596,7 +732,6 @@ namespace ST10439147_CLDV6212_POE.Controllers
                 }
                 else
                 {
-                    // Fallback to direct queue service
                     var inventoryMessage = $"{action} order {order.RowKey} - Product: {order.ProductId}, Quantity: {order.Quantity}, Timestamp: {DateTime.UtcNow:yyyy-MM-dd HH:mm:ss}";
                     await _queueService.SendInventoryMessageAsync(inventoryMessage);
                 }
@@ -626,6 +761,53 @@ namespace ST10439147_CLDV6212_POE.Controllers
             {
                 _logger.LogError(ex, "Error clearing queue: {QueueName}", queueName);
                 return Json(new { success = false, message = $"Failed to clear queue: {ex.Message}" });
+            }
+        }
+
+        //--------------------------------------------------------------------------------------------------------------------------------------------------------------//
+        [HttpGet]
+        public async Task<IActionResult> PeekQueueMessages(string queueName = "ordermsg")
+        {
+            try
+            {
+                _logger.LogInformation("Peeking messages from queue: {QueueName}", queueName);
+
+                var messages = await _queueService.PeekQueueMessagesAsync(queueName, 32);
+
+                _logger.LogInformation("Successfully peeked {Count} messages from queue: {QueueName}",
+                    messages.Count, queueName);
+
+                var messageInfoList = messages.Select((msg, index) => new
+                {
+                    Index = index,
+                    MessageText = msg,
+                    IsJson = msg.TrimStart().StartsWith("{")
+                }).ToList();
+
+                ViewBag.QueueName = queueName;
+                ViewBag.Messages = messageInfoList;
+                ViewBag.MessageCount = messages.Count;
+                ViewBag.IsReadOnly = true;
+
+                return View("PeekQueueMessages");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error peeking messages from queue: {QueueName}. Details: {Message}",
+                    queueName, ex.Message);
+
+                if (ex.InnerException != null)
+                {
+                    _logger.LogError("Inner exception: {InnerMessage}", ex.InnerException.Message);
+                }
+
+                ViewBag.Error = $"Unable to peek messages from queue '{queueName}'. Error: {ex.Message}";
+                ViewBag.QueueName = queueName;
+                ViewBag.Messages = new List<object>();
+                ViewBag.MessageCount = 0;
+                ViewBag.IsReadOnly = true;
+
+                return View("PeekQueueMessages");
             }
         }
     }

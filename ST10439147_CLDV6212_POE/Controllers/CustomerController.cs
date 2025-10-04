@@ -29,18 +29,31 @@ namespace ST10439147_CLDV6212_POE.Controllers
         {
             _httpClient = httpClientFactory.CreateClient();
             _logger = logger;
-            _functionBaseUrl = configuration["AzureFunctions:BaseUrl"]; // e.g., "https://yourapp.azurewebsites.net/api"
-            _functionKey = configuration["AzureFunctions:FunctionKey"]; // Your function key
+            _functionBaseUrl = configuration["AzureFunctions:BaseUrl"];
+            _functionKey = configuration["AzureFunctions:FunctionKey"];
         }
 
-        // GET: Customer/Index
-        public async Task<IActionResult> Index()
+        /// GET: Customer/Index with search
+        public async Task<IActionResult> Index(string searchName)
         {
             try
             {
-                _logger.LogInformation("Loading all customers from Azure Function");
+                _logger.LogInformation($"Loading customers from Azure Function. Search term: {searchName}");
 
-                var request = new HttpRequestMessage(HttpMethod.Get, $"{_functionBaseUrl}/customers");
+                HttpRequestMessage request;
+
+                if (!string.IsNullOrWhiteSpace(searchName))
+                {
+                    // Use search endpoint if search term is provided
+                    request = new HttpRequestMessage(HttpMethod.Get,
+                        $"{_functionBaseUrl}/customers/search?name={Uri.EscapeDataString(searchName)}");
+                }
+                else
+                {
+                    // Use regular endpoint for all customers
+                    request = new HttpRequestMessage(HttpMethod.Get, $"{_functionBaseUrl}/customers");
+                }
+
                 request.Headers.Add("x-functions-key", _functionKey);
 
                 var response = await _httpClient.SendAsync(request);
@@ -52,10 +65,16 @@ namespace ST10439147_CLDV6212_POE.Controllers
                     {
                         PropertyNameCaseInsensitive = true
                     });
+
+                    ViewBag.SearchName = searchName;
+                    ViewBag.ResultCount = customers?.Count ?? 0;
+
                     return View(customers);
                 }
 
                 _logger.LogError($"Error loading customers: {response.StatusCode}");
+                var errorContent = await response.Content.ReadAsStringAsync();
+                _logger.LogError($"Error details: {errorContent}");
                 ViewBag.Error = "Unable to load customers. Please try again.";
                 return View(new List<Customer>());
             }
@@ -99,6 +118,7 @@ namespace ST10439147_CLDV6212_POE.Controllers
                 {
                     _logger.LogInformation($"Creating customer: {customer.Email}");
 
+                    // FIXED: Added missing forward slash
                     var request = new HttpRequestMessage(HttpMethod.Post, $"{_functionBaseUrl}/customers");
                     request.Headers.Add("x-functions-key", _functionKey);
 

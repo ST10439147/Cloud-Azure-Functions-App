@@ -1,8 +1,13 @@
 ﻿@{
     ViewData["Title"] = "Queue Messages";
     var queueName = ViewBag.QueueName as string ?? "Unknown";
-    var messages = ViewBag.Messages as List<string> ?? new List<string>();
+    var isReadOnly = ViewBag.IsReadOnly ?? false;
+    var messageCount = ViewBag.MessageCount ?? 0;
     var error = ViewBag.Error as string;
+
+    // Check if we have QueueMessageInfo objects or strings
+    var messageInfoList = ViewBag.Messages as List<ST10439147_CLDV6212_POE.Services.QueueMessageInfo>;
+    var messageStrings = ViewBag.Messages as List<string>;
 
     // Determine queue display properties
     var queueDisplayName = queueName switch
@@ -38,7 +43,8 @@
                     </h2>
                     <p class="text-muted mb-0">
                         Queue: <code>@queueName</code> |
-                        Messages: <span class="badge bg-@queueColor">@messages.Count</span> |
+                        Messages: <span class="badge bg-@queueColor">@messageCount</span> |
+                        Mode: <span class="badge bg-info">@(isReadOnly ? "Peek (Read-Only)" : "Receive")</span> |
                         Last Updated: <span id="lastUpdated">@DateTime.Now.ToString("HH:mm:ss")</span>
                     </p>
                 </div>
@@ -53,14 +59,14 @@
                         </button>
                         <ul class="dropdown-menu">
                             <li>
-                                <a class="dropdown-item @(queueName == "ordermsg" ? "active" : "")"
-                                   asp-action="ViewQueueMessages" asp-route-queueName="ordermsg">
+                                <a class="dropdown-item @(queueName == "ordermsg-poison" ? "active" : "")"
+                                   asp-action="ViewQueueMessages" asp-route-queueName="ordermsg" asp-route-peek="true">
                                     <i class="fas fa-shopping-cart me-2"></i>Order Messages
                                 </a>
                             </li>
                             <li>
-                                <a class="dropdown-item @(queueName == "inventory-msg" ? "active" : "")"
-                                   asp-action="ViewQueueMessages" asp-route-queueName="inventory-msg">
+                                <a class="dropdown-item @(queueName == "inventory-msg-poison" ? "active" : "")"
+                                   asp-action="ViewQueueMessages" asp-route-queueName="inventory-msg" asp-route-peek="true">
                                     <i class="fas fa-boxes me-2"></i>Inventory Messages
                                 </a>
                             </li>
@@ -112,13 +118,13 @@
                         </div>
                         <div class="col-md-4 text-end">
                             <span class="badge bg-white text-@queueColor fs-6">
-                                @messages.Count message@(messages.Count != 1 ? "s" : "")
+                                @messageCount message@(messageCount != 1 ? "s" : "")
                             </span>
                         </div>
                     </div>
                 </div>
                 <div class="card-body">
-                    @if (messages.Count == 0)
+                    @if (messageCount == 0)
                     {
                         <div class="text-center py-5">
                             <i class="fas fa-inbox fs-1 text-muted mb-3"></i>
@@ -141,176 +147,174 @@
                     {
                         <!-- Messages List -->
                         <div class="row">
-                            @for (int i = 0; i < messages.Count; i++)
+                            @if (messageInfoList != null)
                             {
-                                var message = messages[i];
-                                var messageId = $"message-{i}";
+                                @* Receive mode - full message info *@
+                                @for (int i = 0; i < messageInfoList.Count; i++)
+                                {
+                                    var msg = messageInfoList[i];
+                                    var messageId = $"message-{i}";
+                                    var isJsonMessage = msg.MessageText.TrimStart().StartsWith("{");
 
-                                // Try to parse as JSON for better data extraction (but won't display formatted JSON)
-                                var isJsonMessage = message.TrimStart().StartsWith("{");
-                                var messageData = new Dictionary<string, object>();
-
-                                <div class="col-12 mb-3">
-                                    <div class="card border-start border-@queueColor border-4 message-card">
-                                        <div class="card-header bg-light">
-                                            <div class="row align-items-center">
-                                                <div class="col-auto">
-                                                    <input type="checkbox" class="form-check-input message-checkbox"
-                                                           data-message-index="@i">
-                                                </div>
-                                                <div class="col">
-                                                    <div class="d-flex align-items-center">
-                                                        <h6 class="mb-0 me-3">
-                                                            <i class="fas fa-envelope me-2"></i>Message #@(i + 1)
-                                                        </h6>
-                                                        @if (queueName == "ordermsg")
-                                                        {
-                                                            <span class="badge bg-primary">Order Data</span>
-                                                        }
-                                                        else if (queueName == "inventory-msg")
-                                                        {
-                                                            <span class="badge bg-warning text-dark">Inventory Update</span>
-                                                        }
+                                    <div class="col-12 mb-3">
+                                        <div class="card border-start border-@queueColor border-4 message-card">
+                                            <div class="card-header bg-light">
+                                                <div class="row align-items-center">
+                                                    <div class="col">
+                                                        <div class="d-flex align-items-center">
+                                                            <h6 class="mb-0 me-3">
+                                                                <i class="fas fa-envelope me-2"></i>Message #@(i + 1)
+                                                            </h6>
+                                                            @if (isJsonMessage)
+                                                            {
+                                                                <span class="badge bg-success">JSON</span>
+                                                            }
+                                                            else
+                                                            {
+                                                                <span class="badge bg-secondary">Text</span>
+                                                            }
+                                                        </div>
+                                                        <small class="text-muted">
+                                                            Dequeue Count: @msg.DequeueCount |
+                                                            Inserted: @msg.InsertedOn?.ToString("g")
+                                                        </small>
                                                     </div>
-                                                </div>
-                                                <div class="col-auto">
-                                                    <button class="btn btn-sm btn-outline-secondary"
-                                                            type="button"
-                                                            data-bs-toggle="collapse"
-                                                            data-bs-target="#@messageId"
-                                                            aria-expanded="false">
-                                                        <i class="fas fa-chevron-down"></i>
-                                                    </button>
+                                                    <div class="col-auto">
+                                                        <button class="btn btn-sm btn-outline-secondary"
+                                                                type="button"
+                                                                data-bs-toggle="collapse"
+                                                                data-bs-target="#@messageId"
+                                                                aria-expanded="false">
+                                                            <i class="fas fa-chevron-down"></i>
+                                                        </button>
+                                                    </div>
                                                 </div>
                                             </div>
-                                        </div>
-                                        <div class="collapse" id="@messageId">
-                                            <div class="card-body">
-                                                <!-- Message Content Display (no JSON formatting) -->
-                                                <div class="mb-3">
-                                                    <h6><i class="fas fa-file-alt me-2"></i>Message Content</h6>
-                                                    <div class="p-3 bg-light rounded border">
-                                                        <pre class="mb-0" style="white-space: pre-wrap; word-wrap: break-word;">@message</pre>
+                                            <div class="collapse show" id="@messageId">
+                                                <div class="card-body">
+                                                    <!-- Message Content -->
+                                                    <div class="mb-3">
+                                                        <h6><i class="fas fa-file-alt me-2"></i>Message Content</h6>
+                                                        <div class="p-3 bg-light rounded border">
+                                                            @if (isJsonMessage)
+                                                            {
+                                                                <pre class="mb-0" style="white-space: pre-wrap; word-wrap: break-word; font-size: 0.85rem;">@msg.MessageText</pre>
+                                                            }
+                                                            else
+                                                            {
+                                                                <div style="font-family: monospace; font-size: 0.9rem;">@msg.MessageText</div>
+                                                            }
+                                                        </div>
                                                     </div>
-                                                </div>
 
-                                                @if (queueName == "ordermsg" && isJsonMessage)
-                                                {
-                                                    <!-- Parse and display order data if it's JSON -->
-                                                    <div class="mb-3">
-                                                        <h6><i class="fas fa-info-circle me-2"></i>Order Information</h6>
-                                                        <div class="row">
-                                                            <div class="col-md-6">
-                                                                <dl class="row">
-                                                                    <dt class="col-sm-4">Order ID:</dt>
-                                                                    <dd class="col-sm-8"><span class="extract-json" data-field="orderId">N/A</span></dd>
-                                                                    <dt class="col-sm-4">Customer:</dt>
-                                                                    <dd class="col-sm-8"><span class="extract-json" data-field="customerId">N/A</span></dd>
-                                                                    <dt class="col-sm-4">Product:</dt>
-                                                                    <dd class="col-sm-8"><span class="extract-json" data-field="productId">N/A</span></dd>
-                                                                </dl>
+                                                    <!-- Actions -->
+                                                    <div class="mt-3 pt-3 border-top">
+                                                        <div class="d-flex justify-content-between align-items-center">
+                                                            <div>
+                                                                <small class="text-muted">
+                                                                    <i class="fas fa-database me-1"></i>Message ID: <code>@msg.MessageId</code>
+                                                                </small>
                                                             </div>
-                                                            <div class="col-md-6">
-                                                                <dl class="row">
-                                                                    <dt class="col-sm-4">Quantity:</dt>
-                                                                    <dd class="col-sm-8"><span class="extract-json" data-field="quantity">N/A</span></dd>
-                                                                    <dt class="col-sm-4">Total Price:</dt>
-                                                                    <dd class="col-sm-8">R <span class="extract-json" data-field="totalPrice">N/A</span></dd>
-                                                                    <dt class="col-sm-4">Action:</dt>
-                                                                    <dd class="col-sm-8"><span class="badge bg-info extract-json" data-field="action">N/A</span></dd>
-                                                                </dl>
+                                                            <div class="btn-group btn-group-sm">
+                                                                <button class="btn btn-outline-secondary" onclick='copyMessageText(@i, @Html.Raw(System.Text.Json.JsonSerializer.Serialize(msg.MessageText)))'>
+                                                                    <i class="fas fa-copy me-1"></i>Copy
+                                                                </button>
+                                                                <form method="post" asp-action="ProcessOrderMessage" class="d-inline">
+                                                                    <input name="messageId" value="@msg.MessageId" type="hidden">
+                                                                    <input name="popReceipt" value="@msg.PopReceipt" type="hidden">
+                                                                    <input name="queueName" value="@queueName" type="hidden">
+                                                                    <button type="submit" class="btn btn-danger btn-sm">
+                                                                        <i class="fas fa-trash me-1"></i>Delete
+                                                                    </button>
+                                                                </form>
                                                             </div>
-                                                        </div>
-                                                    </div>
-                                                }
-                                                else if (queueName == "inventory-msg" && isJsonMessage)
-                                                {
-                                                    <!-- Parse and display inventory data if it's JSON -->
-                                                    <div class="mb-3">
-                                                        <h6><i class="fas fa-boxes me-2"></i>Inventory Information</h6>
-                                                        <div class="row">
-                                                            <div class="col-md-6">
-                                                                <dl class="row">
-                                                                    <dt class="col-sm-4">Order ID:</dt>
-                                                                    <dd class="col-sm-8"><span class="extract-json" data-field="orderId">N/A</span></dd>
-                                                                    <dt class="col-sm-4">Product ID:</dt>
-                                                                    <dd class="col-sm-8"><span class="extract-json" data-field="productId">N/A</span></dd>
-                                                                    <dt class="col-sm-4">SKU:</dt>
-                                                                    <dd class="col-sm-8"><span class="extract-json" data-field="sku">N/A</span></dd>
-                                                                </dl>
-                                                            </div>
-                                                            <div class="col-md-6">
-                                                                <dl class="row">
-                                                                    <dt class="col-sm-4">Quantity:</dt>
-                                                                    <dd class="col-sm-8"><span class="extract-json" data-field="quantity">N/A</span></dd>
-                                                                    <dt class="col-sm-4">Operation:</dt>
-                                                                    <dd class="col-sm-8"><span class="badge bg-warning text-dark extract-json" data-field="operation">N/A</span></dd>
-                                                                    <dt class="col-sm-4">Timestamp:</dt>
-                                                                    <dd class="col-sm-8"><span class="extract-json" data-field="timestamp">N/A</span></dd>
-                                                                </dl>
-                                                            </div>
-                                                        </div>
-                                                    </div>
-                                                }
-                                                else if (queueName == "inventory-msg")
-                                                {
-                                                    <!-- Non-JSON inventory message -->
-                                                    <div class="mb-3">
-                                                        <h6><i class="fas fa-boxes me-2"></i>Inventory Information</h6>
-                                                        <div class="alert alert-info">
-                                                            <small>
-                                                                <i class="fas fa-info-circle me-1"></i>
-                                                                This appears to be an inventory update message.
-                                                                Check the content above for order ID, product ID, and quantity information.
-                                                            </small>
-                                                        </div>
-                                                    </div>
-                                                }
-
-                                                <!-- Message Actions -->
-                                                <div class="mt-3 pt-3 border-top">
-                                                    <div class="d-flex justify-content-between align-items-center">
-                                                        <div>
-                                                            <small class="text-muted">
-                                                                <i class="fas fa-database me-1"></i>Queue: @queueName
-                                                            </small>
-                                                        </div>
-                                                        <div class="btn-group btn-group-sm">
-                                                            <button class="btn btn-outline-secondary" onclick="copyMessage(@i)">
-                                                                <i class="fas fa-copy me-1"></i>Copy
-                                                            </button>
-                                                            <form method="post" asp-action="ProcessOrderMessage" class="d-inline">
-                                                                <input name="messageId" value="msg-@i" type="hidden">
-                                                                <input name="popReceipt" value="receipt-@i" type="hidden">
-                                                                <input name="queueName" value="@queueName" type="hidden">
-                                                            </form>
                                                         </div>
                                                     </div>
                                                 </div>
                                             </div>
                                         </div>
                                     </div>
-                                </div>
+                                }
+                            }
+                            else if (messageStrings != null)
+                            {
+                                @* Peek mode - string messages only *@
+                                @for (int i = 0; i < messageStrings.Count; i++)
+                                {
+                                    var message = messageStrings[i];
+                                    var messageId = $"message-{i}";
+                                    var isJsonMessage = message.TrimStart().StartsWith("{");
+
+                                    <div class="col-12 mb-3">
+                                        <div class="card border-start border-@queueColor border-4 message-card">
+                                            <div class="card-header bg-light">
+                                                <div class="row align-items-center">
+                                                    <div class="col">
+                                                        <div class="d-flex align-items-center">
+                                                            <h6 class="mb-0 me-3">
+                                                                <i class="fas fa-eye me-2"></i>Message #@(i + 1)
+                                                            </h6>
+                                                            @if (isJsonMessage)
+                                                            {
+                                                                <span class="badge bg-success">JSON</span>
+                                                            }
+                                                            else
+                                                            {
+                                                                <span class="badge bg-secondary">Text</span>
+                                                            }
+                                                            <span class="badge bg-info ms-2">Peek Mode</span>
+                                                        </div>
+                                                    </div>
+                                                    <div class="col-auto">
+                                                        <button class="btn btn-sm btn-outline-secondary"
+                                                                type="button"
+                                                                data-bs-toggle="collapse"
+                                                                data-bs-target="#@messageId"
+                                                                aria-expanded="false">
+                                                            <i class="fas fa-chevron-down"></i>
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                            <div class="collapse show" id="@messageId">
+                                                <div class="card-body">
+                                                    <!-- Message Content -->
+                                                    <div class="mb-3">
+                                                        <h6><i class="fas fa-file-alt me-2"></i>Message Content</h6>
+                                                        <div class="p-3 bg-light rounded border">
+                                                            @if (isJsonMessage)
+                                                            {
+                                                                <pre class="mb-0" style="white-space: pre-wrap; word-wrap: break-word; font-size: 0.85rem;">@message</pre>
+                                                            }
+                                                            else
+                                                            {
+                                                                <div style="font-family: monospace; font-size: 0.9rem;">@message</div>
+                                                            }
+                                                        </div>
+                                                    </div>
+
+                                                    <!-- Actions -->
+                                                    <div class="mt-3 pt-3 border-top">
+                                                        <div class="d-flex justify-content-between align-items-center">
+                                                            <div>
+                                                                <small class="text-muted">
+                                                                    <i class="fas fa-info-circle me-1"></i>Read-only preview (no deletion available)
+                                                                </small>
+                                                            </div>
+                                                            <div class="btn-group btn-group-sm">
+                                                                <button class="btn btn-outline-secondary" onclick='copyMessageText(@i, @Html.Raw(System.Text.Json.JsonSerializer.Serialize(message)))'>
+                                                                    <i class="fas fa-copy me-1"></i>Copy
+                                                                </button>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                }
                             }
                         </div>
-
-                        <!-- Pagination (if needed for large message counts) -->
-                        @if (messages.Count > 20)
-                        {
-                            <nav aria-label="Message pagination" class="mt-4">
-                                <ul class="pagination justify-content-center">
-                                    <li class="page-item disabled">
-                                        <span class="page-link">Previous</span>
-                                    </li>
-                                    <li class="page-item active">
-                                        <span class="page-link">1</span>
-                                    </li>
-                                    <li class="page-item disabled">
-                                        <span class="page-link">Next</span>
-                                    </li>
-                                </ul>
-                            </nav>
-                        }
                     }
                 </div>
             </div>
@@ -318,13 +322,9 @@
     </div>
 </div>
 
-<!-- Hidden textarea for copying messages -->
-<textarea id="copyHelper" style="position: fixed; top: -1000px; left: -1000px;"></textarea>
-
 <style>
     .message-card {
         transition: all 0.3s ease;
-        margin-bottom: 0.5rem;
     }
 
         .message-card:hover {
@@ -336,36 +336,15 @@
         border-width: 4px !important;
     }
 
-    .card-header {
-        border-radius: 0.75rem 0.75rem 0 0;
-    }
-
-    .extract-json {
-        font-family: 'Courier New', monospace;
-        font-weight: 600;
-    }
-
-    .auto-refresh-indicator {
-        position: fixed;
-        top: 20px;
-        right: 20px;
-        z-index: 1050;
-    }
-
-    .btn-group-sm .btn {
-        padding: 0.25rem 0.5rem;
-        font-size: 0.75rem;
-    }
-
-    .card-body {
-        padding: 1rem;
-    }
-
     pre {
         font-size: 0.75rem;
         overflow-x: auto;
-        white-space: pre-wrap;
-        word-wrap: break-word;
+        max-height: 400px;
+        margin-bottom: 0;
+    }
+
+    code {
+        font-size: 0.85rem;
     }
 </style>
 
@@ -373,66 +352,6 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
 
     <script>
-        // Interval ID for auto-refresh
-        let autoRefreshInterval;
-        // Flag to track if auto-refresh is active
-        let autoRefreshActive = false;
-
-        @{
-                // Serialize C# messages list to JavaScript array for client-side processing
-                var jsMessages = System.Text.Json.JsonSerializer.Serialize(messages);
-        }
-
-        // JavaScript array of queue messages
-        const messages = @Html.Raw(jsMessages);
-
-        // DOMContentLoaded event: initialize page features
-        document.addEventListener('DOMContentLoaded', function() {
-            // Extract and display JSON fields for order messages
-            extractJsonData();
-
-            // Setup handlers for message selection checkboxes
-            setupCheckboxHandlers();
-
-            // Update the "Last Updated" timestamp every second
-            updateTimestamp();
-            setInterval(updateTimestamp, 1000);
-
-            // Setup handlers for expand/collapse all message cards
-            setupExpandCollapseHandlers();
-        });
-
-        // Extracts JSON fields from messages and displays them in the UI
-        function extractJsonData() {
-            document.querySelectorAll('.extract-json').forEach(element => {
-                const field = element.dataset.field;
-                // Find the parent message card and its index
-                const messageCard = element.closest('.message-card');
-                const messageIndex = messageCard.querySelector('.message-checkbox').dataset.messageIndex;
-                const messageContent = messages[messageIndex];
-
-                try {
-                    // Parse message as JSON
-                    const jsonData = JSON.parse(messageContent);
-                    // Try to get the field value (case-insensitive)
-                    const value = jsonData[field] || jsonData[field.toLowerCase()] ||
-                                  jsonData[field.charAt(0).toUpperCase() + field.slice(1)];
-
-                    if (value !== undefined && value !== null) {
-                        element.textContent = value;
-                        // If element is a badge, update its style to indicate success
-                        if (element.classList.contains('badge')) {
-                            element.classList.remove('bg-info');
-                            element.classList.add('bg-success');
-                        }
-                    }
-                } catch (e) {
-                    // Ignore if not valid JSON or field not found
-                }
-            });
-        }
-
-        // Updates the "Last Updated" timestamp in the UI
         function updateTimestamp() {
             const now = new Date();
             const timeString = now.toLocaleTimeString('en-US', { hour12: false });
@@ -442,78 +361,38 @@
             }
         }
 
-        // Reloads the page to refresh messages
         function refreshMessages() {
             location.reload();
         }
 
-        // Starts auto-refreshing the page every 10 seconds
-        function startAutoRefresh() {
-            if (!autoRefreshActive) {
-                autoRefreshActive = true;
-                autoRefreshInterval = setInterval(refreshMessages, 10000); // 10s interval
-
-                // Disable "Start" button, enable "Stop" button
-                document.querySelector('button[onclick="startAutoRefresh()"]').disabled = true;
-                document.querySelector('button[onclick="stopAutoRefresh()"]').disabled = false;
-
-                // Show auto-refresh indicator
-                showAutoRefreshIndicator();
-            }
-        }
-
-        // Stops auto-refreshing the page
-        function stopAutoRefresh() {
-            if (autoRefreshActive) {
-                autoRefreshActive = false;
-                clearInterval(autoRefreshInterval);
-
-                // Enable "Start" button, disable "Stop" button
-                document.querySelector('button[onclick="startAutoRefresh()"]').disabled = false;
-                document.querySelector('button[onclick="stopAutoRefresh()"]').disabled = true;
-
-                // Hide auto-refresh indicator
-                hideAutoRefreshIndicator();
-            }
-        }
-
-        // Copies the content of a message to the clipboard and shows feedback
-        function copyMessage(index) {
-            const message = messages[index];
-            const copyHelper = document.getElementById('copyHelper');
-            copyHelper.value = message;
-            copyHelper.select();
+        function copyMessageText(index, messageText) {
+            const textarea = document.createElement('textarea');
+            textarea.value = messageText;
+            textarea.style.position = 'fixed';
+            textarea.style.top = '-1000px';
+            document.body.appendChild(textarea);
+            textarea.select();
             document.execCommand('copy');
+            document.body.removeChild(textarea);
 
-            // Show "Copied!" feedback on the button
+            // Show feedback
             const btn = event.target.closest('button');
-            const originalText = btn.innerHTML;
+            const originalHtml = btn.innerHTML;
             btn.innerHTML = '<i class="fas fa-check me-1"></i>Copied!';
             btn.classList.add('btn-success');
             btn.classList.remove('btn-outline-secondary');
 
             setTimeout(() => {
-                btn.innerHTML = originalText;
+                btn.innerHTML = originalHtml;
                 btn.classList.remove('btn-success');
                 btn.classList.add('btn-outline-secondary');
             }, 2000);
         }
 
-        // Placeholder functions for missing handlers
-        function setupCheckboxHandlers() {
-            // Add checkbox handling logic if needed
-        }
-
-        function setupExpandCollapseHandlers() {
-            // Add expand/collapse handling logic if needed
-        }
-
-        function showAutoRefreshIndicator() {
-            // Add auto-refresh indicator if needed
-        }
-
-        function hideAutoRefreshIndicator() {
-            // Hide auto-refresh indicator if needed
-        }
+        // Update timestamp every second
+        document.addEventListener('DOMContentLoaded', function() {
+            updateTimestamp();
+            setInterval(updateTimestamp, 1000);
+        });
     </script>
 }

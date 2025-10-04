@@ -1,12 +1,19 @@
 {
-    "version": "2.0",
-    "logging": {
+  "version": "2.0",
+  "extensions": {
+    "queues": {
+      "maxDequeueCount": 10, // temporary for debugging
+      "visibilityTimeout": "00:00:30", // allow a bit more time for processing
+      "logging": {
         "applicationInsights": {
-            "samplingSettings": {
-                "isEnabled": true,
-                "excludedTypes": "Request"
-            },
-            "enableLiveMetricsFilters": true
+          "samplingSettings": {
+            "isEnabled": true,
+            "excludedTypes": "Request"
+          },
+          "enableLiveMetricsFilters": true
         }
+      }
     }
+  }
+
 }

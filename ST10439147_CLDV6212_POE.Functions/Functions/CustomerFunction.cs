@@ -26,6 +26,7 @@ namespace ST10439147_CLDV6212_POE.Functions
         {
             _logger = logger;
             _tableService = tableService;
+            _logger.LogInformation("CustomerFunction constructor completed");
         }
 
         // POST: Create a new customer
@@ -33,15 +34,20 @@ namespace ST10439147_CLDV6212_POE.Functions
         public async Task<HttpResponseData> CreateCustomer(
             [HttpTrigger(AuthorizationLevel.Function, "post", Route = "customers")] HttpRequestData req)
         {
-            _logger.LogInformation("Creating new customer");
+            _logger.LogInformation("=== CreateCustomer function triggered ===");
 
             try
             {
+                _logger.LogInformation($"TableService is null: {_tableService == null}");
+
                 string requestBody = await new StreamReader(req.Body).ReadToEndAsync();
+                _logger.LogInformation($"Request body received: {requestBody}");
+
                 var customer = JsonConvert.DeserializeObject<Customer>(requestBody);
 
                 if (customer == null)
                 {
+                    _logger.LogWarning("Failed to deserialize customer");
                     var badResponse = req.CreateResponse(HttpStatusCode.BadRequest);
                     await badResponse.WriteStringAsync("Invalid customer data");
                     return badResponse;
@@ -52,6 +58,7 @@ namespace ST10439147_CLDV6212_POE.Functions
                     string.IsNullOrEmpty(customer.LastName) ||
                     string.IsNullOrEmpty(customer.Email))
                 {
+                    _logger.LogWarning("Missing required fields");
                     var badResponse = req.CreateResponse(HttpStatusCode.BadRequest);
                     await badResponse.WriteStringAsync("FirstName, LastName, and Email are required");
                     return badResponse;
@@ -67,6 +74,8 @@ namespace ST10439147_CLDV6212_POE.Functions
                     customer.RowKey = Guid.NewGuid().ToString();
                 }
 
+                _logger.LogInformation($"Attempting to insert customer with RowKey: {customer.RowKey}");
+
                 await _tableService.InsertCustomerAsync(customer);
 
                 _logger.LogInformation($"Customer created successfully: {customer.RowKey}");
@@ -77,9 +86,14 @@ namespace ST10439147_CLDV6212_POE.Functions
             }
             catch (Exception ex)
             {
-                _logger.LogError($"Error creating customer: {ex.Message}");
+                _logger.LogError($"=== FULL ERROR DETAILS ===");
+                _logger.LogError($"Message: {ex.Message}");
+                _logger.LogError($"Stack Trace: {ex.StackTrace}");
+                _logger.LogError($"Inner Exception: {ex.InnerException?.Message}");
+                _logger.LogError($"Inner Stack Trace: {ex.InnerException?.StackTrace}");
+
                 var errorResponse = req.CreateResponse(HttpStatusCode.InternalServerError);
-                await errorResponse.WriteStringAsync("Internal server error");
+                await errorResponse.WriteStringAsync($"Error: {ex.Message}");
                 return errorResponse;
             }
         }
@@ -89,10 +103,12 @@ namespace ST10439147_CLDV6212_POE.Functions
         public async Task<HttpResponseData> GetAllCustomers(
             [HttpTrigger(AuthorizationLevel.Function, "get", Route = "customers")] HttpRequestData req)
         {
-            _logger.LogInformation("Retrieving all customers");
+            _logger.LogInformation("=== GetAllCustomers function triggered ===");
 
             try
             {
+                _logger.LogInformation($"TableService is null: {_tableService == null}");
+
                 var customers = await _tableService.GetAllCustomersAsync();
 
                 _logger.LogInformation($"Retrieved {customers.Count} customers");
@@ -103,9 +119,49 @@ namespace ST10439147_CLDV6212_POE.Functions
             }
             catch (Exception ex)
             {
-                _logger.LogError($"Error retrieving customers: {ex.Message}");
+                _logger.LogError($"=== FULL ERROR DETAILS ===");
+                _logger.LogError($"Message: {ex.Message}");
+                _logger.LogError($"Stack Trace: {ex.StackTrace}");
+                _logger.LogError($"Inner Exception: {ex.InnerException?.Message}");
+
                 var errorResponse = req.CreateResponse(HttpStatusCode.InternalServerError);
-                await errorResponse.WriteStringAsync("Internal server error");
+                await errorResponse.WriteStringAsync($"Error: {ex.Message}");
+                return errorResponse;
+            }
+        }
+
+        // GET: Search customers by name
+        [Function("SearchCustomers")]
+        public async Task<HttpResponseData> SearchCustomers(
+            [HttpTrigger(AuthorizationLevel.Function, "get", Route = "customers/search")] HttpRequestData req)
+        {
+            _logger.LogInformation("=== SearchCustomers function triggered ===");
+
+            try
+            {
+                // Get search term from query string
+                var query = System.Web.HttpUtility.ParseQueryString(req.Url.Query);
+                var searchTerm = query["name"];
+
+                _logger.LogInformation($"Searching for customers with name: {searchTerm}");
+
+                var customers = await _tableService.SearchCustomersByNameAsync(searchTerm);
+
+                _logger.LogInformation($"Found {customers.Count} customers matching search term");
+
+                var response = req.CreateResponse(HttpStatusCode.OK);
+                await response.WriteAsJsonAsync(customers);
+                return response;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError($"=== FULL ERROR DETAILS ===");
+                _logger.LogError($"Message: {ex.Message}");
+                _logger.LogError($"Stack Trace: {ex.StackTrace}");
+                _logger.LogError($"Inner Exception: {ex.InnerException?.Message}");
+
+                var errorResponse = req.CreateResponse(HttpStatusCode.InternalServerError);
+                await errorResponse.WriteStringAsync($"Error: {ex.Message}");
                 return errorResponse;
             }
         }
@@ -117,7 +173,7 @@ namespace ST10439147_CLDV6212_POE.Functions
             string partitionKey,
             string rowKey)
         {
-            _logger.LogInformation($"Retrieving customer: {partitionKey}/{rowKey}");
+            _logger.LogInformation($"=== GetCustomerById triggered: {partitionKey}/{rowKey} ===");
 
             try
             {
@@ -139,8 +195,10 @@ namespace ST10439147_CLDV6212_POE.Functions
             catch (Exception ex)
             {
                 _logger.LogError($"Error retrieving customer: {ex.Message}");
+                _logger.LogError($"Stack Trace: {ex.StackTrace}");
+
                 var errorResponse = req.CreateResponse(HttpStatusCode.InternalServerError);
-                await errorResponse.WriteStringAsync("Internal server error");
+                await errorResponse.WriteStringAsync($"Error: {ex.Message}");
                 return errorResponse;
             }
         }
@@ -152,7 +210,7 @@ namespace ST10439147_CLDV6212_POE.Functions
             string partitionKey,
             string rowKey)
         {
-            _logger.LogInformation($"Updating customer: {partitionKey}/{rowKey}");
+            _logger.LogInformation($"=== UpdateCustomer triggered: {partitionKey}/{rowKey} ===");
 
             try
             {
@@ -204,8 +262,10 @@ namespace ST10439147_CLDV6212_POE.Functions
             catch (Exception ex)
             {
                 _logger.LogError($"Error updating customer: {ex.Message}");
+                _logger.LogError($"Stack Trace: {ex.StackTrace}");
+
                 var errorResponse = req.CreateResponse(HttpStatusCode.InternalServerError);
-                await errorResponse.WriteStringAsync("Internal server error");
+                await errorResponse.WriteStringAsync($"Error: {ex.Message}");
                 return errorResponse;
             }
         }
@@ -217,7 +277,7 @@ namespace ST10439147_CLDV6212_POE.Functions
             string partitionKey,
             string rowKey)
         {
-            _logger.LogInformation($"Deleting customer: {partitionKey}/{rowKey}");
+            _logger.LogInformation($"=== DeleteCustomer triggered: {partitionKey}/{rowKey} ===");
 
             try
             {
@@ -239,8 +299,10 @@ namespace ST10439147_CLDV6212_POE.Functions
             catch (Exception ex)
             {
                 _logger.LogError($"Error deleting customer: {ex.Message}");
+                _logger.LogError($"Stack Trace: {ex.StackTrace}");
+
                 var errorResponse = req.CreateResponse(HttpStatusCode.InternalServerError);
-                await errorResponse.WriteStringAsync("Internal server error");
+                await errorResponse.WriteStringAsync($"Error: {ex.Message}");
                 return errorResponse;
             }
         }

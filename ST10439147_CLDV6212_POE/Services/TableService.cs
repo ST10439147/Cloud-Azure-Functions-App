@@ -22,13 +22,18 @@ namespace ST10439147_CLDV6212_POE.Services
         private readonly TableClient _productsTableClient;// Table client for products
         private readonly TableClient _ordersTableClient;// Table client for orders
         //--------------------------------------------------------------------------------------------------------------------------------------------------------------//
-        public TableService(IConfiguration config)// Constructor to initialize TableService with configuration
+        public TableService(IConfiguration config)
         {
-            var connectionString = config["AzureStorage:ConnectionString"];// Retrieve connection string from configuration
+            Console.WriteLine("=== TableService constructor called ===");
 
-            if (string.IsNullOrEmpty(connectionString))// Check if connection string is null or empty
+            var connectionString = config["AzureStorage:ConnectionString"]
+                                  ?? config["AzureStorage__ConnectionString"]
+                                  ?? config["AzureWebJobsStorage"];
+
+            Console.WriteLine($"Connection string found: {!string.IsNullOrEmpty(connectionString)}");
+
+            if (string.IsNullOrEmpty(connectionString))
             {
-                // Throw exception if connection string is not configured
                 throw new InvalidOperationException("Azure Storage connection string is not configured.");
             }
 
@@ -99,6 +104,45 @@ namespace ST10439147_CLDV6212_POE.Services
             catch (Exception ex)
             {
                 throw new InvalidOperationException($"Failed to retrieve customers: {ex.Message}", ex);
+            }
+        }
+        //--------------------------------------------------------------------------------------------------------------------------------------------------------------//
+        // Method to search customers by name (first name, last name, or full name)
+        // Use async-await for asynchronous operations
+        // Wrap operations in try-catch to handle exceptions and provide meaningful error messages
+        // Return a list of Customer objects that match the search term
+        // Performs case-insensitive searching
+        public async Task<List<Customer>> SearchCustomersByNameAsync(string searchTerm)
+        {
+            try
+            {
+                var customers = new List<Customer>();
+
+                if (string.IsNullOrWhiteSpace(searchTerm))
+                {
+                    // If search term is empty, return all customers
+                    return await GetAllCustomersAsync();
+                }
+
+                var lowerSearchTerm = searchTerm.ToLower();
+
+                // Query all customers and filter by name
+                await foreach (Customer entity in _customersTableClient.QueryAsync<Customer>())
+                {
+                    // Check if first name or last name contains the search term
+                    if (entity.FirstName?.ToLower().Contains(lowerSearchTerm) == true ||
+                        entity.LastName?.ToLower().Contains(lowerSearchTerm) == true ||
+                        $"{entity.FirstName} {entity.LastName}".ToLower().Contains(lowerSearchTerm))
+                    {
+                        customers.Add(entity);
+                    }
+                }
+
+                return customers;
+            }
+            catch (Exception ex)
+            {
+                throw new InvalidOperationException($"Failed to search customers: {ex.Message}", ex);
             }
         }
         //--------------------------------------------------------------------------------------------------------------------------------------------------------------//
@@ -181,9 +225,6 @@ namespace ST10439147_CLDV6212_POE.Services
         // Ensure optimistic concurrency with ETag during updates
         // Validate input data using data annotations in the Product model
         // Ensure table existence during service initialization
-        // Method to insert a new product into the products table
-        // If RowKey is not set, generate a new GUID for it
-        // Wrap operations in try-catch to handle exceptions and provide meaningful error messages
         public async Task InsertProductAsync(Product product)
         {
             try

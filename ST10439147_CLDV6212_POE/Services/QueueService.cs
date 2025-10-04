@@ -228,65 +228,37 @@ namespace ST10439147_CLDV6212_POE.Services
         // Handles larger requests by making multiple peek operations if needed
         // Ensures compliance with Azure Storage Queue limits
         // This method is separate from GetQueueMessagesAsync to provide different functionality
-        public async Task<List<string>> PeekQueueMessagesAsync(string queueName, int maxMessages = 10)
+        public async Task<List<string>> PeekQueueMessagesAsync(string queueName, int maxMessages = 32)
         {
-            if (string.IsNullOrEmpty(queueName))// Validate queue name
-            {
-                throw new ArgumentException("Queue name cannot be null or empty", nameof(queueName));
-            }
-
-            // Enforce Azure Storage Queue limits - this is the key fix!
-            maxMessages = Math.Min(maxMessages, MAX_PEEK_MESSAGES);
-
             try
             {
-                // Get the queue client for the specified queue
                 var queueClient = _queueServiceClient.GetQueueClient(queueName);
-                // Create the queue if it does not exist
+
+                // Ensure queue exists
                 await queueClient.CreateIfNotExistsAsync();
+
+                // Peek messages (non-destructive read)
+                var peekedMessages = await queueClient.PeekMessagesAsync(maxMessages);
 
                 var messages = new List<string>();
 
-                // For larger requests, we need to make multiple peek operations
-                int remainingMessages = maxMessages;
-                int requestedMessages = Math.Min(remainingMessages, MAX_PEEK_MESSAGES);
-
-                while (remainingMessages > 0 && requestedMessages > 0)
+                if (peekedMessages?.Value != null)
                 {
-                    // Peek messages from the queue (does not remove them)
-                    var peekedMessages = await queueClient.PeekMessagesAsync(requestedMessages);
-
-                    if (!peekedMessages.Value.Any())
-                    {
-                        // No more messages available
-                        break;
-                    }
-
-                    // Add peeked message texts to the result list
                     foreach (var message in peekedMessages.Value)
                     {
-                        messages.Add(message.MessageText);
-                    }
-
-                    remainingMessages -= peekedMessages.Value.Length;
-                    requestedMessages = Math.Min(remainingMessages, MAX_PEEK_MESSAGES);
-
-                    // If we got fewer messages than requested, there are no more messages
-                    if (peekedMessages.Value.Length < Math.Min(maxMessages, MAX_PEEK_MESSAGES))
-                    {
-                        break;
+                        if (message.Body != null)
+                        {
+                            messages.Add(message.Body.ToString());
+                        }
                     }
                 }
 
-                // Log success
-                _logger.LogInformation("Peeked at {Count} messages from queue: {QueueName}", messages.Count, queueName);
                 return messages;
             }
             catch (Exception ex)
             {
-                // Log error and rethrow as InvalidOperationException
-                _logger.LogError(ex, "Failed to peek messages from queue: {QueueName}", queueName);
-                throw new InvalidOperationException($"Failed to peek messages from queue '{queueName}': {ex.Message}", ex);
+                _logger.LogError(ex, "Error peeking messages from queue: {QueueName}", queueName);
+                throw;
             }
         }
         //--------------------------------------------------------------------------------------------------------------------------------------------------------------//
@@ -298,7 +270,7 @@ namespace ST10439147_CLDV6212_POE.Services
         // This method is useful for removing messages that have been processed
         // Ensures that only the intended message is deleted using both ID and pop receipt
         //--------------------------------------------------------------//
-        // Only going to be implemented in Part 2
+        // Only going to be implemented in Part 3
         public async Task DeleteMessageAsync(string queueName, string messageId, string popReceipt)
         {
             if (string.IsNullOrEmpty(queueName))

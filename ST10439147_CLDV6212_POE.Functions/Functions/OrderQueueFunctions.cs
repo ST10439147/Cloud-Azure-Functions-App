@@ -1,10 +1,9 @@
-// StudentNumber: ST10439147
+﻿// StudentNumber: ST10439147
 // StudentName: Dillon Rinkwest
 // CourseCode: CLDV6212
 // POE Part: 2
 
 using Microsoft.Azure.Functions.Worker;
-using Microsoft.Azure.WebJobs;
 using Microsoft.Extensions.Logging;
 using Newtonsoft.Json;
 using ST10439147_CLDV6212_POE.Models;
@@ -15,8 +14,9 @@ using System.Threading.Tasks;
 namespace ST10439147_CLDV6212_POE.Functions
 {
     /// <summary>
-    /// Queue-triggered Azure Functions for processing queued messages
-    /// Handles order processing and inventory management messages
+    /// Queue-triggered Azure Functions for processing queued messages (Isolated Worker Model)
+    /// PURPOSE: Monitoring, logging, and alerting only
+    /// CRITICAL: These functions DO NOT update stock - stock is updated in ProcessCompleteOrder
     /// </summary>
     public class OrderQueueFunctions
     {
@@ -30,277 +30,232 @@ namespace ST10439147_CLDV6212_POE.Functions
         }
 
         //--------------------------------------------------------------------------------------------------------------------------------------------------------------//
-        // Queue Trigger Function 1: Process Order Messages
-        // Triggered automatically when messages appear in the "ordermsg" queue
-        // Processes order-related actions (NewOrder, UpdateOrder, CancelOrder)
-        [FunctionName("ProcessOrderQueue")]
+        // Queue Trigger Function 1: Process Order Messages (for monitoring/logging only)
+        [Function("ProcessOrderQueue")]
         public async Task ProcessOrderQueue(
-            [QueueTrigger("ordermsg", Connection = "AzureStorage:ConnectionString")] string queueMessage,
-            ILogger log)
+            [QueueTrigger("ordermsg", Connection = "AzureWebJobsStorage")] string queueMessage)
         {
-            log.LogInformation("ProcessOrderQueue triggered with message: {Message}", queueMessage);
+            _logger.LogInformation("ProcessOrderQueue triggered - MONITORING MODE");
 
             try
             {
-                // Deserialize the order message
-                var orderMessage = JsonConvert.DeserializeObject<OrderMessage>(queueMessage);
-
-                if (orderMessage == null)
+                // Validate message
+                if (string.IsNullOrWhiteSpace(queueMessage))
                 {
-                    log.LogWarning("Failed to deserialize order message");
+                    _logger.LogInformation("Empty message, exiting gracefully");
                     return;
                 }
 
-                log.LogInformation("Processing {Action} for OrderId: {OrderId}",
-                    orderMessage.Action, orderMessage.OrderId);
-
-                // Process based on action type
-                switch (orderMessage.Action?.ToUpper())
+                if (!queueMessage.TrimStart().StartsWith("{"))
                 {
-                    case "NEWORDER":
-                        await ProcessNewOrder(orderMessage, log);
-                        break;
-
-                    case "UPDATEORDER":
-                        await ProcessOrderUpdate(orderMessage, log);
-                        break;
-
-                    case "CANCELORDER":
-                        await ProcessOrderCancellation(orderMessage, log);
-                        break;
-
-                    default:
-                        log.LogWarning("Unknown action type: {Action} for OrderId: {OrderId}",
-                            orderMessage.Action, orderMessage.OrderId);
-                        break;
+                    _logger.LogInformation("Non-JSON message: {Message}", queueMessage);
+                    return;
                 }
 
-                log.LogInformation("Successfully processed order message for OrderId: {OrderId}",
-                    orderMessage.OrderId);
-            }
-            catch (JsonException jsonEx)
-            {
-                log.LogError(jsonEx, "Error deserializing order message: {Message}", queueMessage);
-            }
-            catch (Exception ex)
-            {
-                log.LogError(ex, "Error processing order queue message: {Message}", queueMessage);
-                // Consider implementing dead-letter queue or retry logic here
-                throw; // Re-throw to trigger Azure Functions retry policy
-            }
-        }
-
-        //--------------------------------------------------------------------------------------------------------------------------------------------------------------//
-        // Queue Trigger Function 2: Process Inventory Messages
-        // Triggered automatically when messages appear in the "inventory-msg" queue
-        // Processes inventory-related updates and logs them
-        [FunctionName("ProcessInventoryQueue")]
-        public async Task ProcessInventoryQueue(
-            [QueueTrigger("inventory-msg", Connection = "AzureStorage:ConnectionString")] string inventoryMessage,
-            ILogger log)
-        {
-            log.LogInformation("ProcessInventoryQueue triggered with message: {Message}", inventoryMessage);
-
-            try
-            {
-                // Parse the inventory message to extract details
-                // Expected format: "Action order OrderId - Product: ProductId, Quantity: X, Timestamp: ..."
-                var messageParts = inventoryMessage.Split(new[] { " - ", ": ", ", " }, StringSplitOptions.None);
-
-                if (messageParts.Length >= 4)
+                OrderMessage orderMessage = null;
+                try
                 {
-                    var action = messageParts[0];
-                    var orderInfo = messageParts[1].Replace("order ", "");
-                    var productId = messageParts[2].Replace("Product", "").Trim();
-                    var quantityStr = messageParts[3].Replace("Quantity", "").Trim();
+                    orderMessage = JsonConvert.DeserializeObject<OrderMessage>(queueMessage);
+                }
+                catch (JsonException ex)
+                {
+                    _logger.LogError(ex, "JSON deserialization failed, exiting gracefully");
+                    return;
+                }
 
-                    log.LogInformation("Inventory Update - Action: {Action}, Order: {OrderId}, Product: {ProductId}, Quantity: {Quantity}",
-                        action, orderInfo, productId, quantityStr);
+                if (orderMessage == null || string.IsNullOrEmpty(orderMessage.OrderId))
+                {
+                    _logger.LogInformation("Invalid order message structure, exiting gracefully");
+                    return;
+                }
 
-                    // Here you could implement actual inventory management logic:
-                    // - Update product stock quantities in Table Storage
-                    // - Send notifications for low stock
-                    // - Generate inventory reports
-                    // - Trigger reorder processes
+                _logger.LogInformation("=== ORDER MONITORING ===");
+                _logger.LogInformation("Action: {Action}", orderMessage.Action ?? "UNKNOWN");
+                _logger.LogInformation("OrderId: {OrderId}", orderMessage.OrderId);
+                _logger.LogInformation("CustomerId: {CustomerId}", orderMessage.CustomerId);
+                _logger.LogInformation("ProductId: {ProductId}", orderMessage.ProductId);
+                _logger.LogInformation("Quantity: {Quantity}", orderMessage.Quantity);
+                _logger.LogInformation("TotalPrice: {TotalPrice:C}", orderMessage.TotalPrice);
+                _logger.LogInformation("OrderDate: {OrderDate}", orderMessage.OrderDate);
 
-                    // Example: Update product stock
-                    if (int.TryParse(quantityStr, out int quantity) && !string.IsNullOrEmpty(productId))
+                // Verify order exists in table (with retry)
+                Order order = null;
+                for (int attempt = 1; attempt <= 2; attempt++)
+                {
+                    try
                     {
-                        await UpdateProductStock(productId, quantity, action, log);
+                        order = await _tableService.GetOrderByIdAsync("Order", orderMessage.OrderId);
+                        if (order != null)
+                        {
+                            _logger.LogInformation("✓ Order verification successful on attempt {Attempt}", attempt);
+                            _logger.LogInformation("✓ Order Status: {Status}", order.Status);
+                            break;
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "Attempt {Attempt} failed to retrieve order", attempt);
+                    }
+
+                    if (attempt < 2)
+                    {
+                        await Task.Delay(2000);
                     }
                 }
-                else
+
+                if (order == null)
                 {
-                    log.LogWarning("Inventory message format unexpected: {Message}", inventoryMessage);
+                    _logger.LogWarning("⚠ Order {OrderId} not found after retries - may be processed by another instance",
+                        orderMessage.OrderId);
+                    return;
                 }
 
-                log.LogInformation("Successfully processed inventory message");
-            }
-            catch (Exception ex)
-            {
-                log.LogError(ex, "Error processing inventory queue message: {Message}", inventoryMessage);
-                // Consider implementing dead-letter queue or retry logic here
-                throw; // Re-throw to trigger Azure Functions retry policy
-            }
-        }
-
-        //--------------------------------------------------------------------------------------------------------------------------------------------------------------//
-        // Helper method: Process new order
-        private async Task ProcessNewOrder(OrderMessage orderMessage, ILogger log)
-        {
-            try
-            {
-                // Verify the order exists in the table
-                var order = await _tableService.GetOrderByIdAsync("Order", orderMessage.OrderId);
-
-                if (order != null)
-                {
-                    // Update order status to "Processing"
-                    order.Status = "Processing";
-                    await _tableService.UpdateOrderAsync(order);
-
-                    log.LogInformation("New order {OrderId} status updated to Processing", orderMessage.OrderId);
-
-                    // Additional business logic could be added here:
-                    // - Send confirmation email to customer
-                    // - Notify warehouse system
-                    // - Calculate shipping costs
-                    // - Validate payment
-                }
-                else
-                {
-                    log.LogWarning("Order {OrderId} not found in table storage", orderMessage.OrderId);
-                }
-            }
-            catch (Exception ex)
-            {
-                log.LogError(ex, "Error processing new order: {OrderId}", orderMessage.OrderId);
-                throw;
-            }
-        }
-
-        //--------------------------------------------------------------------------------------------------------------------------------------------------------------//
-        // Helper method: Process order update
-        private async Task ProcessOrderUpdate(OrderMessage orderMessage, ILogger log)
-        {
-            try
-            {
-                var order = await _tableService.GetOrderByIdAsync("Order", orderMessage.OrderId);
-
-                if (order != null)
-                {
-                    // Log the update
-                    log.LogInformation("Order {OrderId} updated - Previous Status: {Status}",
-                        orderMessage.OrderId, order.Status);
-
-                    // Additional business logic could be added here:
-                    // - Send update notification to customer
-                    // - Update related systems
-                    // - Log audit trail
-                    // - Check for stock availability changes
-                }
-                else
-                {
-                    log.LogWarning("Order {OrderId} not found for update", orderMessage.OrderId);
-                }
-            }
-            catch (Exception ex)
-            {
-                log.LogError(ex, "Error processing order update: {OrderId}", orderMessage.OrderId);
-                throw;
-            }
-        }
-
-        //--------------------------------------------------------------------------------------------------------------------------------------------------------------//
-        // Helper method: Process order cancellation
-        private async Task ProcessOrderCancellation(OrderMessage orderMessage, ILogger log)
-        {
-            try
-            {
-                log.LogInformation("Processing cancellation for order {OrderId}", orderMessage.OrderId);
-
-                // Additional business logic for cancellation:
-                // - Restore product stock quantities
-                // - Process refunds
-                // - Send cancellation confirmation
-                // - Update related orders or subscriptions
-                // - Notify relevant departments
-
-                // Example: Restore stock
-                if (!string.IsNullOrEmpty(orderMessage.ProductId) && orderMessage.Quantity > 0)
+                // Check product stock levels for alerts
+                try
                 {
                     var product = await _tableService.GetProductByIdAsync("Product", orderMessage.ProductId);
                     if (product != null)
                     {
-                        product.StockQuantity += orderMessage.Quantity;
-                        await _tableService.UpdateProductAsync(product);
-                        log.LogInformation("Stock restored for product {ProductId}: +{Quantity}",
-                            orderMessage.ProductId, orderMessage.Quantity);
+                        _logger.LogInformation("Product: {ProductName}, Current Stock: {Stock}",
+                            product.Name, product.StockQuantity);
+
+                        // Low stock alert
+                        if (product.StockQuantity < 10)
+                        {
+                            _logger.LogWarning("⚠ LOW STOCK ALERT: Product {ProductId} ({ProductName}) has only {Stock} items remaining",
+                                product.RowKey, product.Name, product.StockQuantity);
+                        }
+
+                        // Out of stock alert
+                        if (product.StockQuantity == 0)
+                        {
+                            _logger.LogError("❌ OUT OF STOCK: Product {ProductId} ({ProductName}) is now out of stock",
+                                product.RowKey, product.Name);
+                        }
                     }
                 }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Could not check product stock for alerts");
+                }
 
-                log.LogInformation("Order cancellation processed for {OrderId}", orderMessage.OrderId);
+                _logger.LogInformation("=== END ORDER MONITORING ===");
             }
             catch (Exception ex)
             {
-                log.LogError(ex, "Error processing order cancellation: {OrderId}", orderMessage.OrderId);
-                throw;
+                _logger.LogError(ex, "Error in ProcessOrderQueue. Message: {Message}", queueMessage);
+                // Don't throw - just log and return to prevent poison queue
             }
         }
 
         //--------------------------------------------------------------------------------------------------------------------------------------------------------------//
-        // Helper method: Update product stock based on inventory message
-        private async Task UpdateProductStock(string productId, int quantity, string action, ILogger log)
+        // Queue Trigger Function 2: Process Inventory Messages (for logging/monitoring only)
+        [Function("ProcessInventoryQueue")]
+        public async Task ProcessInventoryQueue(
+            [QueueTrigger("inventory-msg", Connection = "AzureWebJobsStorage")] string inventoryMessage)
         {
             try
             {
-                var product = await _tableService.GetProductByIdAsync("Product", productId);
+                _logger.LogInformation("=== INVENTORY MONITORING ===");
+                _logger.LogInformation("Inventory log: {Message}", inventoryMessage);
 
-                if (product != null)
+                if (string.IsNullOrWhiteSpace(inventoryMessage))
                 {
-                    // Determine stock adjustment based on action
-                    if (action.Contains("Processing", StringComparison.OrdinalIgnoreCase) ||
-                        action.Contains("NewOrder", StringComparison.OrdinalIgnoreCase))
-                    {
-                        // Decrease stock for new orders
-                        product.StockQuantity -= quantity;
-                        log.LogInformation("Stock decreased for product {ProductId}: -{Quantity} (New: {NewStock})",
-                            productId, quantity, product.StockQuantity);
-                    }
-                    else if (action.Contains("cancelled", StringComparison.OrdinalIgnoreCase))
-                    {
-                        // Restore stock for cancelled orders
-                        product.StockQuantity += quantity;
-                        log.LogInformation("Stock restored for product {ProductId}: +{Quantity} (New: {NewStock})",
-                            productId, quantity, product.StockQuantity);
-                    }
-
-                    // Check for low stock warning
-                    if (product.StockQuantity < 10)
-                    {
-                        log.LogWarning("Low stock alert for product {ProductId}: {StockQuantity} remaining",
-                            productId, product.StockQuantity);
-                    }
-
-                    // Prevent negative stock
-                    if (product.StockQuantity < 0)
-                    {
-                        log.LogError("Negative stock detected for product {ProductId}: {StockQuantity}",
-                            productId, product.StockQuantity);
-                        product.StockQuantity = 0;
-                    }
-
-                    await _tableService.UpdateProductAsync(product);
+                    _logger.LogInformation("Empty inventory message received, exiting gracefully");
+                    return;
                 }
-                else
+
+                // Parse the message to extract product information for monitoring
+                string productId = null;
+                int quantity = 0;
+                string action = "Processing";
+
+                // Extract Product ID
+                var productMatch = System.Text.RegularExpressions.Regex.Match(inventoryMessage, @"Product:\s*([a-fA-F0-9\-]+)");
+                if (productMatch.Success)
                 {
-                    log.LogWarning("Product {ProductId} not found for stock update", productId);
+                    productId = productMatch.Groups[1].Value.Trim();
                 }
+
+                // Extract Quantity
+                var quantityMatch = System.Text.RegularExpressions.Regex.Match(inventoryMessage, @"Quantity:\s*(\d+)");
+                if (quantityMatch.Success)
+                {
+                    int.TryParse(quantityMatch.Groups[1].Value, out quantity);
+                }
+
+                // Determine action type
+                if (inventoryMessage.Contains("cancelled", StringComparison.OrdinalIgnoreCase) ||
+                    inventoryMessage.Contains("cancel", StringComparison.OrdinalIgnoreCase) ||
+                    inventoryMessage.Contains("restored", StringComparison.OrdinalIgnoreCase))
+                {
+                    action = "Cancelled/Restored";
+                }
+                else if (inventoryMessage.Contains("updated", StringComparison.OrdinalIgnoreCase))
+                {
+                    action = "Updated";
+                }
+                else if (inventoryMessage.Contains("reduced", StringComparison.OrdinalIgnoreCase))
+                {
+                    action = "Reduced";
+                }
+
+                _logger.LogInformation("Parsed - ProductId: {ProductId}, Quantity: {Quantity}, Action: {Action}",
+                    productId ?? "N/A", quantity, action);
+
+                // Generate stock report for monitoring
+                if (!string.IsNullOrEmpty(productId))
+                {
+                    try
+                    {
+                        var product = await _tableService.GetProductByIdAsync("Product", productId);
+
+                        if (product != null)
+                        {
+                            _logger.LogInformation("📊 STOCK REPORT:");
+                            _logger.LogInformation("  Product: {ProductName} (ID: {ProductId})", product.Name, productId);
+                            _logger.LogInformation("  Current Stock: {Stock}", product.StockQuantity);
+                            _logger.LogInformation("  Price: {Price:C}", product.Price);
+                            _logger.LogInformation("  Action: {Action} ({Quantity} units)", action, quantity);
+
+                            // Generate alerts based on stock levels
+                            if (product.StockQuantity == 0)
+                            {
+                                _logger.LogError("❌ CRITICAL: Product {ProductName} is OUT OF STOCK", product.Name);
+                            }
+                            else if (product.StockQuantity < 5)
+                            {
+                                _logger.LogWarning("⚠ WARNING: Product {ProductName} is CRITICALLY LOW ({Stock} remaining)",
+                                    product.Name, product.StockQuantity);
+                            }
+                            else if (product.StockQuantity < 20)
+                            {
+                                _logger.LogWarning("⚠ NOTICE: Product {ProductName} stock is getting low ({Stock} remaining)",
+                                    product.Name, product.StockQuantity);
+                            }
+                            else
+                            {
+                                _logger.LogInformation("✓ Product {ProductName} stock is adequate ({Stock} remaining)",
+                                    product.Name, product.StockQuantity);
+                            }
+                        }
+                        else
+                        {
+                            _logger.LogWarning("⚠ Product {ProductId} not found for monitoring", productId);
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogError(ex, "Error retrieving product for monitoring: {ProductId}", productId);
+                    }
+                }
+
+                _logger.LogInformation("=== END INVENTORY MONITORING ===");
             }
             catch (Exception ex)
             {
-                log.LogError(ex, "Error updating product stock for {ProductId}", productId);
-                throw;
+                _logger.LogError(ex, "Error processing inventory queue message: {Message}", inventoryMessage);
+                // Don't throw - just log and return to avoid poison queue
             }
         }
     }

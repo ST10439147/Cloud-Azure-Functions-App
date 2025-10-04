@@ -16,6 +16,8 @@ namespace ST10439147_CLDV6212_POE
 
             builder.Services.AddSingleton<TableService>();
             builder.Services.AddSingleton<QueueService>();
+            builder.Services.AddSingleton<FileShareService>();
+            builder.Services.AddSingleton<BlobService>();
 
 
             builder.Services.AddHttpClient();

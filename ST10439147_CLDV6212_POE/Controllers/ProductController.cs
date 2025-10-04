@@ -269,79 +269,86 @@ namespace ST10439147_CLDV6212_POE.Controllers
 
         // POST: Product/Edit/5
         [HttpPost]
-        [ValidateAntiForgeryToken]
-        public async Task<IActionResult> Edit(string id, Product product, IFormFile? imageFile)
+[ValidateAntiForgeryToken]
+public async Task<IActionResult> Edit(string id, Product product, IFormFile? imageFile)
+{
+    if (string.IsNullOrEmpty(id))
+    {
+        return NotFound();
+    }
+
+    if (id != product.RowKey)
+    {
+        _logger.LogWarning("ID mismatch in Edit: URL ID {UrlId}, Product RowKey {RowKey}",
+            id, product.RowKey);
+        return BadRequest("ID mismatch");
+    }
+
+    // Remove image validation if not required
+    ModelState.Remove("ImageUrl");
+
+    if (!ModelState.IsValid)
+    {
+        return View(product);
+    }
+
+    try
+    {
+        _logger.LogInformation("Updating product: {ProductId}", id);
+
+        using var formData = new MultipartFormDataContent();
+
+        formData.Add(new StringContent(product.Name ?? string.Empty), "Name");
+        formData.Add(new StringContent(product.Description ?? string.Empty), "Description");
+
+        // ✅ Ensure correct decimal format for price (invariant culture uses '.' as decimal separator)
+        var formattedPrice = product.Price.ToString("0.00", System.Globalization.CultureInfo.InvariantCulture);
+        formData.Add(new StringContent(formattedPrice), "Price");
+
+        formData.Add(new StringContent(product.StockQuantity.ToString()), "StockQuantity");
+
+        // Add image only if provided
+        if (imageFile is { Length: > 0 })
         {
-            if (string.IsNullOrEmpty(id))
-            {
-                return NotFound();
-            }
+            var fileContent = new StreamContent(imageFile.OpenReadStream());
+            fileContent.Headers.ContentType = new MediaTypeHeaderValue(imageFile.ContentType);
+            formData.Add(fileContent, "imageFile", imageFile.FileName);
 
-            if (id != product.RowKey)
-            {
-                _logger.LogWarning("ID mismatch in Edit: URL ID {UrlId}, Product RowKey {RowKey}",
-                    id, product.RowKey);
-                return BadRequest("ID mismatch");
-            }
+            _logger.LogInformation("Adding new image file for update: {FileName}, Size: {Size} bytes",
+                imageFile.FileName, imageFile.Length);
+        }
 
-            ModelState.Remove("ImageUrl");
+        var request = new HttpRequestMessage(HttpMethod.Put, $"{_functionBaseUrl}/products/Product/{id}")
+        {
+            Content = formData
+        };
+        request.Headers.Add("x-functions-key", _functionKey);
 
-            if (!ModelState.IsValid)
-            {
+        var response = await _httpClient.SendAsync(request);
+
+        if (response.IsSuccessStatusCode)
+        {
+            _logger.LogInformation("Product updated successfully: {ProductId}", id);
+            TempData["Success"] = "Product updated successfully!";
+            return RedirectToAction(nameof(Index));
+        }
+
+        var errorContent = await response.Content.ReadAsStringAsync();
+
+        switch (response.StatusCode)
+        {
+            case System.Net.HttpStatusCode.NotFound:
+                _logger.LogWarning("Product not found during update: {ProductId}", id);
+                TempData["Error"] = "The product no longer exists.";
+                return RedirectToAction(nameof(Index));
+
+            case System.Net.HttpStatusCode.Conflict:
+                _logger.LogWarning("Concurrency conflict updating product: {ProductId}", id);
+                ModelState.AddModelError(string.Empty,
+                    "The product was modified by another user. Please refresh and try again.");
                 return View(product);
-            }
 
-            try
-            {
-                _logger.LogInformation("Updating product: {ProductId}", id);
-
-                using var formData = new MultipartFormDataContent();
-
-                formData.Add(new StringContent(product.Name ?? string.Empty), "Name");
-                formData.Add(new StringContent(product.Description ?? string.Empty), "Description");
-                formData.Add(new StringContent(product.Price.ToString("F2")), "Price");
-                formData.Add(new StringContent(product.StockQuantity.ToString()), "StockQuantity");
-
-                if (imageFile != null && imageFile.Length > 0)
-                {
-                    var fileContent = new StreamContent(imageFile.OpenReadStream());
-                    fileContent.Headers.ContentType = new MediaTypeHeaderValue(imageFile.ContentType);
-                    formData.Add(fileContent, "imageFile", imageFile.FileName);
-
-                    _logger.LogInformation("Adding new image file for update: {FileName}, Size: {Size} bytes",
-                        imageFile.FileName, imageFile.Length);
-                }
-
-                var request = new HttpRequestMessage(HttpMethod.Put,
-                    $"{_functionBaseUrl}/products/Product/{id}");
-                request.Headers.Add("x-functions-key", _functionKey);
-                request.Content = formData;
-
-                var response = await _httpClient.SendAsync(request);
-
-                if (response.IsSuccessStatusCode)
-                {
-                    _logger.LogInformation("Product updated successfully: {ProductId}", id);
-                    TempData["Success"] = "Product updated successfully!";
-                    return RedirectToAction(nameof(Index));
-                }
-
-                if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
-                {
-                    _logger.LogWarning("Product not found during update: {ProductId}", id);
-                    TempData["Error"] = "The product no longer exists.";
-                    return RedirectToAction(nameof(Index));
-                }
-
-                if (response.StatusCode == System.Net.HttpStatusCode.Conflict)
-                {
-                    _logger.LogWarning("Concurrency conflict updating product: {ProductId}", id);
-                    ModelState.AddModelError(string.Empty,
-                        "The product has been modified by another user. Please refresh and try again.");
-                    return View(product);
-                }
-
-                var errorContent = await response.Content.ReadAsStringAsync();
+            default:
                 _logger.LogError("Error updating product: {StatusCode} - {ErrorContent}",
                     response.StatusCode, errorContent);
 
@@ -351,33 +358,32 @@ namespace ST10439147_CLDV6212_POE.Controllers
                         new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
 
                     if (errorObj != null && errorObj.ContainsKey("error"))
-                    {
                         ModelState.AddModelError(string.Empty, errorObj["error"]);
-                    }
                     else
-                    {
                         ModelState.AddModelError(string.Empty, "Unable to update product. Please try again.");
-                    }
                 }
                 catch
                 {
                     ModelState.AddModelError(string.Empty,
                         $"Unable to update product. Server returned: {response.StatusCode}");
                 }
-            }
-            catch (HttpRequestException httpEx)
-            {
-                _logger.LogError(httpEx, "HTTP request error updating product: {ProductId}", id);
-                ModelState.AddModelError(string.Empty, "Unable to connect to the server. Please try again.");
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error updating product: {ProductId}", id);
-                ModelState.AddModelError(string.Empty, "An unexpected error occurred. Please try again.");
-            }
-
-            return View(product);
+                break;
         }
+    }
+    catch (HttpRequestException httpEx)
+    {
+        _logger.LogError(httpEx, "HTTP request error updating product: {ProductId}", id);
+        ModelState.AddModelError(string.Empty, "Unable to connect to the server. Please try again.");
+    }
+    catch (Exception ex)
+    {
+        _logger.LogError(ex, "Error updating product: {ProductId}", id);
+        ModelState.AddModelError(string.Empty, "An unexpected error occurred. Please try again.");
+    }
+
+    return View(product);
+}
+
 
         // GET: Product/Delete/5
         [HttpGet]
