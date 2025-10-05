@@ -32,6 +32,7 @@ namespace ST10439147_CLDV6212_POE.Functions
         }
 
         // POST: Create a new product
+        // POST: Create a new product
         [Function("CreateProduct")]
         public async Task<HttpResponseData> CreateProduct(
             [HttpTrigger(AuthorizationLevel.Function, "post", Route = "products")] HttpRequestData req)
@@ -43,19 +44,74 @@ namespace ST10439147_CLDV6212_POE.Functions
                 // Parse multipart form data
                 var formData = await req.ReadMultipartAsync();
 
+                _logger.LogInformation("Form data parsed successfully");
+
+                // Log all received fields for debugging
+                _logger.LogInformation($"Name: {formData.GetField("Name")}");
+                _logger.LogInformation($"Description: {formData.GetField("Description")}");
+                _logger.LogInformation($"Price: {formData.GetField("Price")}");
+                _logger.LogInformation($"StockQuantity: {formData.GetField("StockQuantity")}");
+                _logger.LogInformation($"Files count: {formData.Files.Count}");
+
+                // Validate and parse Price
+                var priceField = formData.GetField("Price");
+                if (string.IsNullOrEmpty(priceField))
+                {
+                    _logger.LogError("Price field is empty");
+                    var badResponse = req.CreateResponse(HttpStatusCode.BadRequest);
+                    await badResponse.WriteAsJsonAsync(new { error = "Price is required" });
+                    return badResponse;
+                }
+
+                if (!double.TryParse(priceField,
+                    System.Globalization.NumberStyles.Any,
+                    System.Globalization.CultureInfo.InvariantCulture,
+                    out var price))
+                {
+                    _logger.LogError($"Failed to parse price: {priceField}");
+                    var badResponse = req.CreateResponse(HttpStatusCode.BadRequest);
+                    await badResponse.WriteAsJsonAsync(new { error = $"Invalid price format: {priceField}" });
+                    return badResponse;
+                }
+
+                _logger.LogInformation($"Price parsed successfully: {price}");
+
+                // Validate and parse StockQuantity
+                var stockField = formData.GetField("StockQuantity");
+                if (string.IsNullOrEmpty(stockField))
+                {
+                    _logger.LogError("StockQuantity field is empty");
+                    var badResponse = req.CreateResponse(HttpStatusCode.BadRequest);
+                    await badResponse.WriteAsJsonAsync(new { error = "Stock quantity is required" });
+                    return badResponse;
+                }
+
+                if (!int.TryParse(stockField, out var stockQuantity))
+                {
+                    _logger.LogError($"Failed to parse stock quantity: {stockField}");
+                    var badResponse = req.CreateResponse(HttpStatusCode.BadRequest);
+                    await badResponse.WriteAsJsonAsync(new { error = $"Invalid stock quantity format: {stockField}" });
+                    return badResponse;
+                }
+
+                _logger.LogInformation($"StockQuantity parsed successfully: {stockQuantity}");
+
                 var product = new Product
                 {
                     PartitionKey = "Product",
                     RowKey = Guid.NewGuid().ToString(),
                     Name = formData.GetField("Name"),
                     Description = formData.GetField("Description"),
-                    Price = double.Parse(formData.GetField("Price")),
-                    StockQuantity = int.Parse(formData.GetField("StockQuantity"))
+                    Price = price,
+                    StockQuantity = stockQuantity
                 };
+
+                _logger.LogInformation($"Product object created with RowKey: {product.RowKey}");
 
                 // Validate required fields
                 if (string.IsNullOrEmpty(product.Name))
                 {
+                    _logger.LogError("Product name is empty");
                     var badResponse = req.CreateResponse(HttpStatusCode.BadRequest);
                     await badResponse.WriteAsJsonAsync(new { error = "Product name is required" });
                     return badResponse;
@@ -64,28 +120,71 @@ namespace ST10439147_CLDV6212_POE.Functions
                 // Handle image upload if provided
                 if (formData.Files.Count > 0)
                 {
-                    var fileData = formData.Files[0];
-                    _logger.LogInformation($"Uploading image: {fileData.FileName}");
+                    try
+                    {
+                        var fileData = formData.Files[0];
+                        _logger.LogInformation($"Uploading image: {fileData.FileName}, Size: {fileData.Length}");
 
-                    // Convert FileData to IFormFile for BlobService
-                    var formFile = new FormFileWrapper(fileData);
-                    product.ImageUrl = await _blobService.UploadImageAsync(formFile);
-                    _logger.LogInformation($"Image uploaded successfully: {product.ImageUrl}");
+                        // Convert FileData to IFormFile for BlobService
+                        var formFile = new FormFileWrapper(fileData);
+                        product.ImageUrl = await _blobService.UploadImageAsync(formFile);
+                        _logger.LogInformation($"Image uploaded successfully: {product.ImageUrl}");
+                    }
+                    catch (Exception imgEx)
+                    {
+                        _logger.LogError(imgEx, "Error uploading image");
+                        var errorResponse = req.CreateResponse(HttpStatusCode.InternalServerError);
+                        await errorResponse.WriteAsJsonAsync(new { error = $"Failed to upload image: {imgEx.Message}" });
+                        return errorResponse;
+                    }
+                }
+                else
+                {
+                    _logger.LogInformation("No image file provided");
                 }
 
+                _logger.LogInformation("Inserting product into table storage");
                 await _tableService.InsertProductAsync(product);
-
-                _logger.LogInformation($"Product created successfully: {product.RowKey}");
+                _logger.LogInformation($"Product inserted successfully: {product.RowKey}");
 
                 var response = req.CreateResponse(HttpStatusCode.OK);
-                await response.WriteAsJsonAsync(product);
+
+                // Create a simple response object to avoid serialization issues
+                var responseData = new
+                {
+                    rowKey = product.RowKey,
+                    partitionKey = product.PartitionKey,
+                    name = product.Name,
+                    description = product.Description,
+                    price = product.Price,
+                    stockQuantity = product.StockQuantity,
+                    imageUrl = product.ImageUrl
+                };
+
+                _logger.LogInformation("Writing response");
+                await response.WriteAsJsonAsync(responseData);
+                _logger.LogInformation("Response written successfully");
+
                 return response;
             }
             catch (Exception ex)
             {
-                _logger.LogError($"Error creating product: {ex.Message}");
+                _logger.LogError(ex, $"Error creating product: {ex.Message}");
+                _logger.LogError($"Stack trace: {ex.StackTrace}");
+
+                if (ex.InnerException != null)
+                {
+                    _logger.LogError($"Inner exception: {ex.InnerException.Message}");
+                    _logger.LogError($"Inner stack trace: {ex.InnerException.StackTrace}");
+                }
+
                 var errorResponse = req.CreateResponse(HttpStatusCode.InternalServerError);
-                await errorResponse.WriteAsJsonAsync(new { error = ex.Message });
+                await errorResponse.WriteAsJsonAsync(new
+                {
+                    error = ex.Message,
+                    innerError = ex.InnerException?.Message,
+                    type = ex.GetType().Name
+                });
                 return errorResponse;
             }
         }
@@ -168,11 +267,43 @@ namespace ST10439147_CLDV6212_POE.Functions
                 // Parse multipart form data
                 var formData = await req.ReadMultipartAsync();
 
-                // Update fields
-                existingProduct.Name = formData.GetField("Name");
-                existingProduct.Description = formData.GetField("Description");
-                existingProduct.Price = double.Parse(formData.GetField("Price"));
-                existingProduct.StockQuantity = int.Parse(formData.GetField("StockQuantity"));
+                // Validate and parse Price
+                var priceField = formData.GetField("Price");
+                if (!string.IsNullOrEmpty(priceField))
+                {
+                    if (!double.TryParse(priceField,
+                        System.Globalization.NumberStyles.Any,
+                        System.Globalization.CultureInfo.InvariantCulture,
+                        out var price))
+                    {
+                        var badResponse = req.CreateResponse(HttpStatusCode.BadRequest);
+                        await badResponse.WriteAsJsonAsync(new { error = "Invalid price format" });
+                        return badResponse;
+                    }
+                    existingProduct.Price = price;
+                }
+
+                // Validate and parse StockQuantity
+                var stockField = formData.GetField("StockQuantity");
+                if (!string.IsNullOrEmpty(stockField))
+                {
+                    if (!int.TryParse(stockField, out var stockQuantity))
+                    {
+                        var badResponse = req.CreateResponse(HttpStatusCode.BadRequest);
+                        await badResponse.WriteAsJsonAsync(new { error = "Invalid stock quantity format" });
+                        return badResponse;
+                    }
+                    existingProduct.StockQuantity = stockQuantity;
+                }
+
+                // Update other fields
+                var name = formData.GetField("Name");
+                if (!string.IsNullOrEmpty(name))
+                    existingProduct.Name = name;
+
+                var description = formData.GetField("Description");
+                if (!string.IsNullOrEmpty(description))
+                    existingProduct.Description = description;
 
                 // Handle new image upload if provided
                 if (formData.Files.Count > 0)
@@ -218,6 +349,7 @@ namespace ST10439147_CLDV6212_POE.Functions
             catch (Exception ex)
             {
                 _logger.LogError($"Error updating product: {ex.Message}");
+                _logger.LogError($"Stack trace: {ex.StackTrace}");
                 var errorResponse = req.CreateResponse(HttpStatusCode.InternalServerError);
                 await errorResponse.WriteAsJsonAsync(new { error = ex.Message });
                 return errorResponse;

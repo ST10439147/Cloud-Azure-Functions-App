@@ -1,10 +1,8 @@
 ﻿<!-- Views/Product/Create.cshtml -->
 @model ST10439147_CLDV6212_POE.Models.Product
-
 @{
     ViewData["Title"] = "Add New Product";
 }
-
 <div class="container mt-4">
     <div class="row justify-content-center">
         <div class="col-md-8">
@@ -49,9 +47,39 @@
                         </div>
 
                         <div class="mb-3">
-                            <label for="imageFile" class="form-label">Product Image</label>
-                            <input type="file" name="imageFile" id="imageFile" class="form-control" accept="image/*" />
-                            <div class="form-text">Upload an image for this product (optional)</div>
+                            <label for="imageFile" class="form-label">
+                                Product Image <span class="text-danger">*</span>
+                            </label>
+                            <input type="file"
+                                   name="imageFile"
+                                   id="imageFile"
+                                   class="form-control @(ViewData.ModelState.ContainsKey("imageFile") && !ViewData.ModelState["imageFile"].Errors.Any() ? "" : ViewData.ModelState.ContainsKey("imageFile") ? "is-invalid" : "")"
+                                   accept="image/jpeg,image/png,image/gif,image/webp"
+                                   required />
+                            <div class="form-text">
+                                <i class="fas fa-info-circle"></i>
+                                Accepted formats: JPG, PNG, GIF, WEBP (Max size: 5MB)
+                            </div>
+                            <span class="text-danger" id="imageFileValidation"></span>
+                            @if (ViewData.ModelState.ContainsKey("imageFile") && ViewData.ModelState["imageFile"].Errors.Any())
+                            {
+                                <div class="invalid-feedback d-block">
+                                    @foreach (var error in ViewData.ModelState["imageFile"].Errors)
+                                    {
+                                        <div>
+                                            <i class="fas fa-exclamation-triangle"></i> @error.ErrorMessage
+                                        </div>
+                                    }
+                                </div>
+                            }
+                        </div>
+
+                        <!-- Image Preview -->
+                        <div class="mb-3" id="imagePreviewContainer" style="display: none;">
+                            <label class="form-label">Image Preview</label>
+                            <div class="border rounded p-2 text-center">
+                                <img id="imagePreview" src="#" alt="Image preview" class="img-fluid" style="max-height: 300px;" />
+                            </div>
                         </div>
 
                         <div class="d-flex justify-content-between">
@@ -73,4 +101,82 @@
     @{
         await Html.RenderPartialAsync("_ValidationScriptsPartial");
     }
+
+    <script>
+        // Image preview functionality
+        document.getElementById('imageFile').addEventListener('change', function(e) {
+            const file = e.target.files[0];
+            const previewContainer = document.getElementById('imagePreviewContainer');
+            const preview = document.getElementById('imagePreview');
+
+            if (file) {
+                // Validate file size (5MB max)
+                const maxSize = 5 * 1024 * 1024; // 5MB in bytes
+                if (file.size > maxSize) {
+                    alert('File size exceeds 5MB. Please choose a smaller image.');
+                    e.target.value = ''; // Clear the input
+                    previewContainer.style.display = 'none';
+                    return;
+                }
+
+                // Validate file type
+                const allowedTypes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
+                if (!allowedTypes.includes(file.type)) {
+                    alert('Invalid file type. Please select a JPG, PNG, GIF, or WEBP image.');
+                    e.target.value = ''; // Clear the input
+                    previewContainer.style.display = 'none';
+                    return;
+                }
+
+                // Show preview
+                const reader = new FileReader();
+                reader.onload = function(event) {
+                    preview.src = event.target.result;
+                    previewContainer.style.display = 'block';
+                };
+                reader.readAsDataURL(file);
+            } else {
+                previewContainer.style.display = 'none';
+            }
+        });
+
+        // Form validation on submit
+        document.querySelector('form').addEventListener('submit', function(e) {
+            const imageFile = document.getElementById('imageFile');
+
+            if (!imageFile.files || imageFile.files.length === 0) {
+                e.preventDefault();
+                alert('Please select an image file for the product.');
+                imageFile.focus();
+                return false;
+            }
+        });
+    </script>
+
+    <style>
+        .is-invalid {
+            border-color: #dc3545;
+        }
+
+        .invalid-feedback {
+            display: block;
+            margin-top: 0.25rem;
+            font-size: 0.875em;
+            color: #dc3545;
+        }
+
+            .invalid-feedback i {
+                margin-right: 0.25rem;
+            }
+
+        .form-text {
+            margin-top: 0.25rem;
+            font-size: 0.875em;
+            color: #6c757d;
+        }
+
+        .text-danger {
+            font-weight: 500;
+        }
+    </style>
 }
