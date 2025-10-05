@@ -57,34 +57,37 @@ namespace ST10439147_CLDV6212_POE.Services
         // The queue is created if it does not exist
         // Logs success or failure of the operation
         // Throws InvalidOperationException on failure
+        // Sends an order message to the order processing queue with enhanced logging
         public async Task SendOrderMessageAsync(OrderMessage orderMessage)
         {
-            if (orderMessage == null)// Validate order message
+            if (orderMessage == null)
             {
                 throw new ArgumentNullException(nameof(orderMessage));
             }
 
             try
             {
-                // Get the queue client for the "ordermsg" queue
                 var queueClient = _queueServiceClient.GetQueueClient("ordermsg");
-                // Create the queue if it does not exist
                 await queueClient.CreateIfNotExistsAsync();
 
-                // Serialize the order message to JSON using camel case property naming
-                var messageJson = JsonSerializer.Serialize(orderMessage, new JsonSerializerOptions
+                // Use System.Text.Json with camelCase to match queue consumer
+                var options = new JsonSerializerOptions
                 {
-                    PropertyNamingPolicy = JsonNamingPolicy.CamelCase
-                });
+                    PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+                    DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull
+                };
 
-                // Send the serialized message to the queue
+                var messageJson = JsonSerializer.Serialize(orderMessage, options);
+
+                // Log the actual JSON being sent for debugging
+                _logger.LogInformation("Sending order message JSON: {MessageJson}", messageJson);
+
                 await queueClient.SendMessageAsync(messageJson);
-                // Log success
+
                 _logger.LogInformation("Order message sent successfully for OrderId: {OrderId}", orderMessage.OrderId);
             }
             catch (Exception ex)
             {
-                // Log error and rethrow as InvalidOperationException
                 _logger.LogError(ex, "Failed to send order message for OrderId: {OrderId}", orderMessage?.OrderId);
                 throw new InvalidOperationException($"Failed to send order message: {ex.Message}", ex);
             }
@@ -99,28 +102,28 @@ namespace ST10439147_CLDV6212_POE.Services
         // Example message could be a product ID or a JSON string with inventory details
         // Ensure the message format is agreed upon by producers and consumers
         // This method is separate from SendOrderMessageAsync for clarity and separation of concerns
+        // Sends an inventory message to the inventory processing queue with enhanced logging
         public async Task SendInventoryMessageAsync(string message)
         {
-            if (string.IsNullOrEmpty(message))// Validate message
+            if (string.IsNullOrEmpty(message))
             {
                 throw new ArgumentException("Message cannot be null or empty", nameof(message));
             }
 
             try
             {
-                // Get the queue client for the "inventory-msg" queue
                 var queueClient = _queueServiceClient.GetQueueClient("inventory-msg");
-                // Create the queue if it does not exist
                 await queueClient.CreateIfNotExistsAsync();
 
-                // Send the message to the queue
+                // Log the message being sent for debugging
+                _logger.LogInformation("Sending inventory message: {Message}", message);
+
                 await queueClient.SendMessageAsync(message);
-                // Log success
-                _logger.LogInformation("Inventory message sent successfully: {Message}", message);
+
+                _logger.LogInformation("Inventory message sent successfully");
             }
             catch (Exception ex)
             {
-                // Log error and rethrow as InvalidOperationException
                 _logger.LogError(ex, "Failed to send inventory message: {Message}", message);
                 throw new InvalidOperationException($"Failed to send inventory message: {ex.Message}", ex);
             }

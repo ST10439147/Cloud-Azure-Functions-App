@@ -286,6 +286,9 @@ namespace ST10439147_CLDV6212_POE.Controllers
             // Store order
             await _tableService.InsertOrderAsync(order);
 
+            // Add delay to ensure table storage write is committed
+            await Task.Delay(1000);
+
             // Queue messages for MONITORING/LOGGING only (not for stock updates)
             var orderMessage = new OrderMessage
             {
@@ -301,7 +304,7 @@ namespace ST10439147_CLDV6212_POE.Controllers
             await _queueService.SendOrderMessageAsync(orderMessage);
 
             // Inventory message is for logging/monitoring purposes only
-            var inventoryMessage = $"Stock reduced for order {order.RowKey} - Product: {order.ProductId}, Quantity: {order.Quantity}, New Stock: [See Product Table], Timestamp: {DateTime.UtcNow:yyyy-MM-dd HH:mm:ss}";
+            var inventoryMessage = $"Stock reduced for order {order.RowKey} - Product: {order.ProductId}, Quantity: {order.Quantity}, Timestamp: {DateTime.UtcNow:yyyy-MM-dd HH:mm:ss}";
             await _queueService.SendInventoryMessageAsync(inventoryMessage);
         }
 

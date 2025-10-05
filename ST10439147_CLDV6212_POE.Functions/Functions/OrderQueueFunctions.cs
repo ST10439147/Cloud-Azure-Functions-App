@@ -35,116 +35,158 @@ namespace ST10439147_CLDV6212_POE.Functions
         public async Task ProcessOrderQueue(
             [QueueTrigger("ordermsg", Connection = "AzureWebJobsStorage")] string queueMessage)
         {
-            _logger.LogInformation("ProcessOrderQueue triggered - MONITORING MODE");
+            _logger.LogInformation("=== ProcessOrderQueue TRIGGERED ===");
+            _logger.LogInformation("Raw message: {Message}", queueMessage);
 
             try
             {
                 // Validate message
                 if (string.IsNullOrWhiteSpace(queueMessage))
                 {
-                    _logger.LogInformation("Empty message, exiting gracefully");
+                    _logger.LogInformation("Empty message received - acknowledging and discarding");
                     return;
                 }
 
-                if (!queueMessage.TrimStart().StartsWith("{"))
+                // Check if it looks like JSON
+                var trimmedMessage = queueMessage.TrimStart();
+                if (!trimmedMessage.StartsWith("{"))
                 {
-                    _logger.LogInformation("Non-JSON message: {Message}", queueMessage);
+                    _logger.LogInformation("Non-JSON message received: {Message} - acknowledging and discarding", queueMessage);
                     return;
                 }
 
                 OrderMessage orderMessage = null;
                 try
                 {
-                    orderMessage = JsonConvert.DeserializeObject<OrderMessage>(queueMessage);
+                    // Use Newtonsoft.Json with settings that match the sender
+                    var settings = new JsonSerializerSettings
+                    {
+                        NullValueHandling = NullValueHandling.Ignore,
+                        MissingMemberHandling = MissingMemberHandling.Ignore,
+                        // This is crucial - it makes property matching case-insensitive
+                        ContractResolver = new Newtonsoft.Json.Serialization.DefaultContractResolver
+                        {
+                            NamingStrategy = new Newtonsoft.Json.Serialization.CamelCaseNamingStrategy()
+                        }
+                    };
+
+                    orderMessage = JsonConvert.DeserializeObject<OrderMessage>(queueMessage, settings);
+
+                    if (orderMessage != null)
+                    {
+                        _logger.LogInformation("✓ Deserialization successful - OrderId: {OrderId}", orderMessage.OrderId);
+                    }
+                    else
+                    {
+                        _logger.LogWarning("Deserialization returned null");
+                        return;
+                    }
                 }
                 catch (JsonException ex)
                 {
-                    _logger.LogError(ex, "JSON deserialization failed, exiting gracefully");
+                    _logger.LogError(ex, "JSON deserialization failed. Message: {Message}", queueMessage);
+                    return;
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Unexpected error during deserialization. Message: {Message}", queueMessage);
                     return;
                 }
 
-                if (orderMessage == null || string.IsNullOrEmpty(orderMessage.OrderId))
+                if (string.IsNullOrEmpty(orderMessage.OrderId))
                 {
-                    _logger.LogInformation("Invalid order message structure, exiting gracefully");
+                    _logger.LogWarning("OrderMessage deserialized but OrderId is null/empty");
                     return;
                 }
 
                 _logger.LogInformation("=== ORDER MONITORING ===");
                 _logger.LogInformation("Action: {Action}", orderMessage.Action ?? "UNKNOWN");
                 _logger.LogInformation("OrderId: {OrderId}", orderMessage.OrderId);
-                _logger.LogInformation("CustomerId: {CustomerId}", orderMessage.CustomerId);
-                _logger.LogInformation("ProductId: {ProductId}", orderMessage.ProductId);
+                _logger.LogInformation("CustomerId: {CustomerId}", orderMessage.CustomerId ?? "NULL");
+                _logger.LogInformation("ProductId: {ProductId}", orderMessage.ProductId ?? "NULL");
                 _logger.LogInformation("Quantity: {Quantity}", orderMessage.Quantity);
                 _logger.LogInformation("TotalPrice: {TotalPrice:C}", orderMessage.TotalPrice);
                 _logger.LogInformation("OrderDate: {OrderDate}", orderMessage.OrderDate);
 
-                // Verify order exists in table (with retry)
+                // Verify order exists in table (with retry and longer delays)
                 Order order = null;
-                for (int attempt = 1; attempt <= 2; attempt++)
+                for (int attempt = 1; attempt <= 3; attempt++)
                 {
                     try
                     {
+                        _logger.LogInformation("Attempting to retrieve order (attempt {Attempt}/3)...", attempt);
                         order = await _tableService.GetOrderByIdAsync("Order", orderMessage.OrderId);
+
                         if (order != null)
                         {
                             _logger.LogInformation("✓ Order verification successful on attempt {Attempt}", attempt);
                             _logger.LogInformation("✓ Order Status: {Status}", order.Status);
                             break;
                         }
+                        else
+                        {
+                            _logger.LogWarning("Order returned null on attempt {Attempt}", attempt);
+                        }
                     }
                     catch (Exception ex)
                     {
-                        _logger.LogWarning(ex, "Attempt {Attempt} failed to retrieve order", attempt);
+                        _logger.LogWarning(ex, "Attempt {Attempt} failed to retrieve order: {Error}", attempt, ex.Message);
                     }
 
-                    if (attempt < 2)
+                    if (attempt < 3)
                     {
-                        await Task.Delay(2000);
+                        _logger.LogInformation("Waiting 3 seconds before retry...");
+                        await Task.Delay(3000);
                     }
                 }
 
                 if (order == null)
                 {
-                    _logger.LogWarning("⚠ Order {OrderId} not found after retries - may be processed by another instance",
-                        orderMessage.OrderId);
-                    return;
+                    _logger.LogWarning("⚠ Order {OrderId} not found after 3 retries", orderMessage.OrderId);
                 }
 
                 // Check product stock levels for alerts
-                try
+                if (!string.IsNullOrEmpty(orderMessage.ProductId))
                 {
-                    var product = await _tableService.GetProductByIdAsync("Product", orderMessage.ProductId);
-                    if (product != null)
+                    try
                     {
-                        _logger.LogInformation("Product: {ProductName}, Current Stock: {Stock}",
-                            product.Name, product.StockQuantity);
+                        _logger.LogInformation("Checking product stock for alerts...");
+                        var product = await _tableService.GetProductByIdAsync("Product", orderMessage.ProductId);
 
-                        // Low stock alert
-                        if (product.StockQuantity < 10)
+                        if (product != null)
                         {
-                            _logger.LogWarning("⚠ LOW STOCK ALERT: Product {ProductId} ({ProductName}) has only {Stock} items remaining",
-                                product.RowKey, product.Name, product.StockQuantity);
+                            _logger.LogInformation("Product: {ProductName}, Current Stock: {Stock}",
+                                product.Name, product.StockQuantity);
+
+                            if (product.StockQuantity == 0)
+                            {
+                                _logger.LogError("❌ OUT OF STOCK: Product {ProductId} ({ProductName})",
+                                    product.RowKey, product.Name);
+                            }
+                            else if (product.StockQuantity < 10)
+                            {
+                                _logger.LogWarning("⚠ LOW STOCK ALERT: Product {ProductId} ({ProductName}) has {Stock} items",
+                                    product.RowKey, product.Name, product.StockQuantity);
+                            }
                         }
-
-                        // Out of stock alert
-                        if (product.StockQuantity == 0)
+                        else
                         {
-                            _logger.LogError("❌ OUT OF STOCK: Product {ProductId} ({ProductName}) is now out of stock",
-                                product.RowKey, product.Name);
+                            _logger.LogWarning("Product {ProductId} not found", orderMessage.ProductId);
                         }
                     }
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogWarning(ex, "Could not check product stock for alerts");
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "Could not check product stock: {Error}", ex.Message);
+                    }
                 }
 
                 _logger.LogInformation("=== END ORDER MONITORING ===");
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error in ProcessOrderQueue. Message: {Message}", queueMessage);
-                // Don't throw - just log and return to prevent poison queue
+                _logger.LogError(ex, "CRITICAL ERROR in ProcessOrderQueue: {Error}", ex.Message);
+                _logger.LogError("Stack trace: {StackTrace}", ex.StackTrace);
+                // Don't rethrow - acknowledge message to prevent poison queue
             }
         }
 
@@ -154,39 +196,39 @@ namespace ST10439147_CLDV6212_POE.Functions
         public async Task ProcessInventoryQueue(
             [QueueTrigger("inventory-msg", Connection = "AzureWebJobsStorage")] string inventoryMessage)
         {
+            _logger.LogInformation("=== ProcessInventoryQueue TRIGGERED ===");
+            _logger.LogInformation("Raw message: {Message}", inventoryMessage);
+
             try
             {
-                _logger.LogInformation("=== INVENTORY MONITORING ===");
-                _logger.LogInformation("Inventory log: {Message}", inventoryMessage);
-
                 if (string.IsNullOrWhiteSpace(inventoryMessage))
                 {
-                    _logger.LogInformation("Empty inventory message received, exiting gracefully");
+                    _logger.LogInformation("Empty inventory message - acknowledging and discarding");
                     return;
                 }
 
-                // Parse the message to extract product information for monitoring
+                _logger.LogInformation("=== INVENTORY MONITORING ===");
+
+                // Parse the message to extract product information
                 string productId = null;
                 int quantity = 0;
                 string action = "Processing";
 
-                // Extract Product ID
-                var productMatch = System.Text.RegularExpressions.Regex.Match(inventoryMessage, @"Product:\s*([a-fA-F0-9\-]+)");
+                var productMatch = System.Text.RegularExpressions.Regex.Match(
+                    inventoryMessage, @"Product:\s*([a-fA-F0-9\-]+)");
                 if (productMatch.Success)
                 {
                     productId = productMatch.Groups[1].Value.Trim();
                 }
 
-                // Extract Quantity
-                var quantityMatch = System.Text.RegularExpressions.Regex.Match(inventoryMessage, @"Quantity:\s*(\d+)");
+                var quantityMatch = System.Text.RegularExpressions.Regex.Match(
+                    inventoryMessage, @"Quantity:\s*(\d+)");
                 if (quantityMatch.Success)
                 {
                     int.TryParse(quantityMatch.Groups[1].Value, out quantity);
                 }
 
-                // Determine action type
                 if (inventoryMessage.Contains("cancelled", StringComparison.OrdinalIgnoreCase) ||
-                    inventoryMessage.Contains("cancel", StringComparison.OrdinalIgnoreCase) ||
                     inventoryMessage.Contains("restored", StringComparison.OrdinalIgnoreCase))
                 {
                     action = "Cancelled/Restored";
@@ -203,7 +245,7 @@ namespace ST10439147_CLDV6212_POE.Functions
                 _logger.LogInformation("Parsed - ProductId: {ProductId}, Quantity: {Quantity}, Action: {Action}",
                     productId ?? "N/A", quantity, action);
 
-                // Generate stock report for monitoring
+                // Generate stock report
                 if (!string.IsNullOrEmpty(productId))
                 {
                     try
@@ -213,40 +255,37 @@ namespace ST10439147_CLDV6212_POE.Functions
                         if (product != null)
                         {
                             _logger.LogInformation("📊 STOCK REPORT:");
-                            _logger.LogInformation("  Product: {ProductName} (ID: {ProductId})", product.Name, productId);
+                            _logger.LogInformation("  Product: {ProductName} (ID: {ProductId})",
+                                product.Name, productId);
                             _logger.LogInformation("  Current Stock: {Stock}", product.StockQuantity);
                             _logger.LogInformation("  Price: {Price:C}", product.Price);
                             _logger.LogInformation("  Action: {Action} ({Quantity} units)", action, quantity);
 
-                            // Generate alerts based on stock levels
                             if (product.StockQuantity == 0)
                             {
-                                _logger.LogError("❌ CRITICAL: Product {ProductName} is OUT OF STOCK", product.Name);
+                                _logger.LogError("❌ CRITICAL: Product {ProductName} is OUT OF STOCK",
+                                    product.Name);
                             }
                             else if (product.StockQuantity < 5)
                             {
-                                _logger.LogWarning("⚠ WARNING: Product {ProductName} is CRITICALLY LOW ({Stock} remaining)",
+                                _logger.LogWarning("⚠ WARNING: Product {ProductName} is CRITICALLY LOW ({Stock})",
                                     product.Name, product.StockQuantity);
                             }
                             else if (product.StockQuantity < 20)
                             {
-                                _logger.LogWarning("⚠ NOTICE: Product {ProductName} stock is getting low ({Stock} remaining)",
+                                _logger.LogWarning("⚠ NOTICE: Product {ProductName} stock is low ({Stock})",
                                     product.Name, product.StockQuantity);
                             }
                             else
                             {
-                                _logger.LogInformation("✓ Product {ProductName} stock is adequate ({Stock} remaining)",
+                                _logger.LogInformation("✓ Product {ProductName} stock is adequate ({Stock})",
                                     product.Name, product.StockQuantity);
                             }
-                        }
-                        else
-                        {
-                            _logger.LogWarning("⚠ Product {ProductId} not found for monitoring", productId);
                         }
                     }
                     catch (Exception ex)
                     {
-                        _logger.LogError(ex, "Error retrieving product for monitoring: {ProductId}", productId);
+                        _logger.LogWarning(ex, "Error retrieving product: {Error}", ex.Message);
                     }
                 }
 
@@ -254,8 +293,9 @@ namespace ST10439147_CLDV6212_POE.Functions
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error processing inventory queue message: {Message}", inventoryMessage);
-                // Don't throw - just log and return to avoid poison queue
+                _logger.LogError(ex, "CRITICAL ERROR in ProcessInventoryQueue: {Error}", ex.Message);
+                _logger.LogError("Stack trace: {StackTrace}", ex.StackTrace);
+                // Don't rethrow - acknowledge message to prevent poison queue
             }
         }
     }
