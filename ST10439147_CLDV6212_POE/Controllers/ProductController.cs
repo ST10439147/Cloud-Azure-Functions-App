@@ -18,73 +18,115 @@ using System.Text.Json;
 
 namespace ST10439147_CLDV6212_POE.Controllers
 {
+    /// <summary>
+    /// Controller responsible for managing product-related operations
+    /// Communicates with Azure Functions to perform CRUD operations on products
+    /// </summary>
     public class ProductController : Controller
     {
+        // HTTP client for making requests to Azure Functions
         private readonly HttpClient _httpClient;
+
+        // Logger for tracking operations and errors
         private readonly ILogger<ProductController> _logger;
+
+        // Base URL for Azure Functions endpoint
         private readonly string _functionBaseUrl;
+
+        // Security key for authenticating with Azure Functions
         private readonly string _functionKey;
 
+        /// <summary>
+        /// Constructor - Initializes the controller with required dependencies
+        /// </summary>
+        /// <param name="httpClientFactory">Factory for creating HTTP clients</param>
+        /// <param name="logger">Logger for recording application events</param>
+        /// <param name="configuration">Configuration containing Azure Function settings</param>
         public ProductController(IHttpClientFactory httpClientFactory, ILogger<ProductController> logger, IConfiguration configuration)
         {
             _httpClient = httpClientFactory.CreateClient();
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+
+            // Load and validate Azure Function base URL from configuration
             _functionBaseUrl = configuration["AzureFunctions:BaseUrl"]?.TrimEnd('/')
                 ?? throw new InvalidOperationException("AzureFunctions:BaseUrl is not configured");
+
+            // Load and validate Azure Function security key from configuration
             _functionKey = configuration["AzureFunctions:FunctionKey"]
                 ?? throw new InvalidOperationException("AzureFunctions:FunctionKey is not configured");
         }
 
-        // GET: Product/Index
+        /// <summary>
+        /// GET: Product/Index
+        /// Retrieves and displays all products from the database
+        /// </summary>
+        /// <returns>View with list of all products</returns>
         public async Task<IActionResult> Index()
         {
             try
             {
                 _logger.LogInformation("Retrieving all products from Azure Function");
 
+                // Create HTTP GET request to retrieve all products
                 var request = new HttpRequestMessage(HttpMethod.Get, $"{_functionBaseUrl}/products");
                 request.Headers.Add("x-functions-key", _functionKey);
 
+                // Send request to Azure Function
                 var response = await _httpClient.SendAsync(request);
 
                 if (response.IsSuccessStatusCode)
                 {
+                    // Read and deserialize the JSON response into a list of products
                     var content = await response.Content.ReadAsStringAsync();
                     var products = JsonSerializer.Deserialize<List<Product>>(content, new JsonSerializerOptions
                     {
-                        PropertyNameCaseInsensitive = true
+                        PropertyNameCaseInsensitive = true // Ignore case differences in property names
                     }) ?? new List<Product>();
 
                     return View(products);
                 }
 
+                // Log error if retrieval fails
                 _logger.LogError("Error retrieving products: {StatusCode}", response.StatusCode);
                 ViewBag.Error = "Unable to load products. Please try again.";
                 return View(new List<Product>());
             }
             catch (Exception ex)
             {
+                // Catch and log any unexpected errors
                 _logger.LogError(ex, "Error retrieving products");
                 ViewBag.Error = "Unable to load products. Please try again.";
                 return View(new List<Product>());
             }
         }
 
-        // GET: Product/Create
+        /// <summary>
+        /// GET: Product/Create
+        /// Displays the form for creating a new product
+        /// </summary>
+        /// <returns>Create product view</returns>
         [HttpGet]
         public IActionResult Create()
         {
             return View();
         }
 
+        /// <summary>
+        /// POST: Product/Create
+        /// Processes the creation of a new product with image upload
+        /// </summary>
+        /// <param name="product">Product data from the form</param>
+        /// <param name="imageFile">Image file uploaded for the product</param>
+        /// <returns>Redirects to Index on success, or returns to Create view with errors</returns>
         [HttpPost]
-        [ValidateAntiForgeryToken]
+        [ValidateAntiForgeryToken] // Protects against CSRF attacks
         public async Task<IActionResult> Create(Product product, IFormFile? imageFile)
         {
+            // Remove validation for fields that will be set automatically
             ModelState.Remove("ImageUrl");
             ModelState.Remove("RowKey");
 
-            // Require image file
+            // Validate that an image file was provided (required for new products)
             if (imageFile == null || imageFile.Length == 0)
             {
                 ModelState.AddModelError("imageFile", "Please select an image file for the product.");
@@ -92,6 +134,7 @@ namespace ST10439147_CLDV6212_POE.Controllers
                 return View(product);
             }
 
+            // Check if all other model validations passed
             if (!ModelState.IsValid)
             {
                 return View(product);
@@ -101,11 +144,11 @@ namespace ST10439147_CLDV6212_POE.Controllers
             {
                 _logger.LogInformation("Creating new product: {ProductName}", product.Name);
 
-                // Validate image file
+                // Validate image file properties
                 if (imageFile.Length > 0)
                 {
-                    // Check file size (e.g., max 5MB)
-                    const long maxFileSize = 5 * 1024 * 1024; // 5MB
+                    // Validate file size - maximum 5MB
+                    const long maxFileSize = 5 * 1024 * 1024; // 5MB in bytes
                     if (imageFile.Length > maxFileSize)
                     {
                         ModelState.AddModelError("imageFile",
@@ -115,12 +158,13 @@ namespace ST10439147_CLDV6212_POE.Controllers
                         return View(product);
                     }
 
-                    // Validate file type
+                    // Define allowed file extensions and content types
                     var allowedExtensions = new[] { ".jpg", ".jpeg", ".png", ".gif", ".webp" };
                     var allowedContentTypes = new[] { "image/jpeg", "image/png", "image/gif", "image/webp" };
 
                     var fileExtension = Path.GetExtension(imageFile.FileName).ToLowerInvariant();
 
+                    // Validate file extension
                     if (!allowedExtensions.Contains(fileExtension))
                     {
                         ModelState.AddModelError("imageFile",
@@ -130,6 +174,7 @@ namespace ST10439147_CLDV6212_POE.Controllers
                         return View(product);
                     }
 
+                    // Validate content type (MIME type)
                     if (!allowedContentTypes.Contains(imageFile.ContentType.ToLowerInvariant()))
                     {
                         ModelState.AddModelError("imageFile",
@@ -139,15 +184,15 @@ namespace ST10439147_CLDV6212_POE.Controllers
                         return View(product);
                     }
 
-                    // Check if file is actually an image by reading header
+                    // Validate actual file content by checking file signature (magic bytes)
                     try
                     {
                         using var stream = imageFile.OpenReadStream();
-                        var buffer = new byte[8];
+                        var buffer = new byte[8]; // Read first 8 bytes
                         await stream.ReadAsync(buffer, 0, 8);
-                        stream.Position = 0; // Reset stream position
+                        stream.Position = 0; // Reset stream for later use
 
-                        // Basic image signature validation
+                        // Check if file signature matches the extension
                         bool isValidImage = IsValidImageSignature(buffer, fileExtension);
                         if (!isValidImage)
                         {
@@ -165,18 +210,20 @@ namespace ST10439147_CLDV6212_POE.Controllers
                     }
                 }
 
+                // Prepare multipart form data for sending to Azure Function
                 using var formData = new MultipartFormDataContent();
 
+                // Add product properties to form data
                 formData.Add(new StringContent(product.Name ?? string.Empty), "Name");
                 formData.Add(new StringContent(product.Description ?? string.Empty), "Description");
 
-                // Use InvariantCulture to ensure decimal point (not comma)
+                // Format price using invariant culture to ensure decimal point (not comma)
                 var formattedPrice = product.Price.ToString("0.00", System.Globalization.CultureInfo.InvariantCulture);
                 formData.Add(new StringContent(formattedPrice), "Price");
 
                 formData.Add(new StringContent(product.StockQuantity.ToString()), "StockQuantity");
 
-                // Image file is required, so always add it
+                // Add image file to form data
                 try
                 {
                     var fileContent = new StreamContent(imageFile.OpenReadStream());
@@ -193,26 +240,30 @@ namespace ST10439147_CLDV6212_POE.Controllers
                     return View(product);
                 }
 
+                // Create HTTP POST request to Azure Function
                 var request = new HttpRequestMessage(HttpMethod.Post, $"{_functionBaseUrl}/products");
                 request.Headers.Add("x-functions-key", _functionKey);
                 request.Content = formData;
 
-                // Set a reasonable timeout for uploads
+                // Set timeout of 2 minutes for file upload
                 using var cts = new CancellationTokenSource(TimeSpan.FromMinutes(2));
 
                 HttpResponseMessage response;
                 try
                 {
+                    // Send request with cancellation token
                     response = await _httpClient.SendAsync(request, cts.Token);
                 }
                 catch (TaskCanceledException)
                 {
+                    // Handle timeout
                     _logger.LogError("Request timeout while creating product: {ProductName}", product.Name);
                     ModelState.AddModelError(string.Empty,
                         "The request took too long to complete. This may be due to a large image file. Please try with a smaller image.");
                     return View(product);
                 }
 
+                // Check if product was created successfully
                 if (response.IsSuccessStatusCode)
                 {
                     _logger.LogInformation("Product created successfully with status code: {StatusCode}",
@@ -221,7 +272,7 @@ namespace ST10439147_CLDV6212_POE.Controllers
                     return RedirectToAction(nameof(Index));
                 }
 
-                // Handle specific error status codes
+                // Handle various error scenarios based on HTTP status codes
                 var errorContent = await response.Content.ReadAsStringAsync();
                 _logger.LogError("Error creating product: {StatusCode} - {ErrorContent}",
                     response.StatusCode, errorContent);
@@ -229,6 +280,7 @@ namespace ST10439147_CLDV6212_POE.Controllers
                 switch (response.StatusCode)
                 {
                     case System.Net.HttpStatusCode.BadRequest:
+                        // Parse and display specific error messages from Azure Function
                         try
                         {
                             var errorObj = JsonSerializer.Deserialize<Dictionary<string, string>>(errorContent,
@@ -238,7 +290,7 @@ namespace ST10439147_CLDV6212_POE.Controllers
                             {
                                 var errorMessage = errorObj["error"];
 
-                                // Check for specific blob upload errors
+                                // Check if error is related to blob storage
                                 if (errorMessage.Contains("blob", StringComparison.OrdinalIgnoreCase) ||
                                     errorMessage.Contains("storage", StringComparison.OrdinalIgnoreCase) ||
                                     errorMessage.Contains("upload", StringComparison.OrdinalIgnoreCase) ||
@@ -266,6 +318,7 @@ namespace ST10439147_CLDV6212_POE.Controllers
                         break;
 
                     case System.Net.HttpStatusCode.RequestEntityTooLarge:
+                        // File too large for blob storage
                         ModelState.AddModelError("imageFile",
                             "The image file is too large for blob storage. Please upload a smaller image (max 5MB).");
                         _logger.LogError("Image file too large for blob storage: {ProductName}, Size: {Size}",
@@ -273,6 +326,7 @@ namespace ST10439147_CLDV6212_POE.Controllers
                         break;
 
                     case System.Net.HttpStatusCode.UnsupportedMediaType:
+                        // Invalid file type for blob storage
                         ModelState.AddModelError("imageFile",
                             "The image file type is not supported by blob storage. Please upload a JPG, PNG, or GIF image.");
                         _logger.LogError("Unsupported media type for blob upload: {ProductName}, ContentType: {ContentType}",
@@ -280,7 +334,7 @@ namespace ST10439147_CLDV6212_POE.Controllers
                         break;
 
                     case System.Net.HttpStatusCode.InternalServerError:
-                        // Check if error is related to blob storage
+                        // Server error, check if related to blob storage
                         if (errorContent.Contains("blob", StringComparison.OrdinalIgnoreCase) ||
                             errorContent.Contains("storage", StringComparison.OrdinalIgnoreCase))
                         {
@@ -297,12 +351,14 @@ namespace ST10439147_CLDV6212_POE.Controllers
                         break;
 
                     case System.Net.HttpStatusCode.ServiceUnavailable:
+                        // Service temporarily unavailable
                         ModelState.AddModelError("imageFile",
                             "The image storage service is temporarily unavailable. Please try again later.");
                         _logger.LogError("Blob storage service unavailable for product: {ProductName}", product.Name);
                         break;
 
                     case System.Net.HttpStatusCode.Conflict:
+                        // File name already exists in blob storage
                         ModelState.AddModelError("imageFile",
                             "An image with this name already exists in storage. Please rename your file and try again.");
                         _logger.LogError("Blob name conflict for product: {ProductName}, FileName: {FileName}",
@@ -310,6 +366,7 @@ namespace ST10439147_CLDV6212_POE.Controllers
                         break;
 
                     default:
+                        // Handle any other error status codes
                         try
                         {
                             var errorObj = JsonSerializer.Deserialize<Dictionary<string, string>>(errorContent,
@@ -335,44 +392,67 @@ namespace ST10439147_CLDV6212_POE.Controllers
             }
             catch (HttpRequestException httpEx)
             {
+                // Handle network-related errors
                 _logger.LogError(httpEx, "HTTP request error creating product: {ProductName}", product.Name);
                 ModelState.AddModelError(string.Empty,
                     "Unable to connect to the server. Please check your internet connection and try again.");
             }
             catch (IOException ioEx)
             {
+                // Handle file reading errors
                 _logger.LogError(ioEx, "IO error while processing image file for product: {ProductName}", product.Name);
                 ModelState.AddModelError("imageFile",
                     "Error reading the image file. The file may be corrupted or in use by another program.");
             }
             catch (Exception ex)
             {
+                // Catch any other unexpected errors
                 _logger.LogError(ex, "Unexpected error creating product: {ProductName}", product.Name);
                 ModelState.AddModelError(string.Empty,
                     "An unexpected error occurred. Please try again. If the problem persists, contact support.");
             }
 
+            // Return to create view with validation errors
             return View(product);
         }
 
-        // Helper method to validate image file signatures
+        /// <summary>
+        /// Helper method to validate image file signatures (magic bytes)
+        /// Prevents users from uploading non-image files with image extensions
+        /// </summary>
+        /// <param name="buffer">First 8 bytes of the file</param>
+        /// <param name="extension">File extension</param>
+        /// <returns>True if file signature matches the extension</returns>
         private bool IsValidImageSignature(byte[] buffer, string extension)
         {
             if (buffer.Length < 8) return false;
 
-            // Check common image file signatures
+            // Check file signature (magic bytes) for each image type
             return extension switch
             {
+                // JPEG files start with FF D8 FF
                 ".jpg" or ".jpeg" => buffer[0] == 0xFF && buffer[1] == 0xD8 && buffer[2] == 0xFF,
+
+                // PNG files start with 89 50 4E 47 (.PNG)
                 ".png" => buffer[0] == 0x89 && buffer[1] == 0x50 && buffer[2] == 0x4E && buffer[3] == 0x47,
+
+                // GIF files start with 47 49 46 (GIF)
                 ".gif" => buffer[0] == 0x47 && buffer[1] == 0x49 && buffer[2] == 0x46,
+
+                // WebP files have RIFF signature and WEBP identifier
                 ".webp" => buffer[0] == 0x52 && buffer[1] == 0x49 && buffer[2] == 0x46 && buffer[3] == 0x46 &&
                            buffer[8] == 0x57 && buffer[9] == 0x45 && buffer[10] == 0x42 && buffer[11] == 0x50,
+
                 _ => false
             };
         }
 
-        // GET: Product/Details/5
+        /// <summary>
+        /// GET: Product/Details/5
+        /// Displays detailed information for a specific product
+        /// </summary>
+        /// <param name="id">Product ID (RowKey)</param>
+        /// <returns>Details view for the specified product</returns>
         public async Task<IActionResult> Details(string id)
         {
             if (string.IsNullOrEmpty(id))
@@ -383,12 +463,14 @@ namespace ST10439147_CLDV6212_POE.Controllers
 
             try
             {
+                // Create HTTP GET request to retrieve specific product
                 var request = new HttpRequestMessage(HttpMethod.Get,
                     $"{_functionBaseUrl}/products/Product/{id}");
                 request.Headers.Add("x-functions-key", _functionKey);
 
                 var response = await _httpClient.SendAsync(request);
 
+                // Handle product not found
                 if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
                 {
                     _logger.LogWarning("Product not found: {ProductId}", id);
@@ -397,6 +479,7 @@ namespace ST10439147_CLDV6212_POE.Controllers
 
                 if (response.IsSuccessStatusCode)
                 {
+                    // Deserialize product data from JSON
                     var content = await response.Content.ReadAsStringAsync();
                     var product = JsonSerializer.Deserialize<Product>(content, new JsonSerializerOptions
                     {
@@ -412,6 +495,7 @@ namespace ST10439147_CLDV6212_POE.Controllers
                     return View(product);
                 }
 
+                // Log error if retrieval fails
                 _logger.LogError("Error retrieving product: {StatusCode}", response.StatusCode);
                 ViewBag.Error = "Unable to load product details.";
                 return View();
@@ -424,7 +508,12 @@ namespace ST10439147_CLDV6212_POE.Controllers
             }
         }
 
-        // GET: Product/Edit/5
+        /// <summary>
+        /// GET: Product/Edit/5
+        /// Displays the edit form for a specific product
+        /// </summary>
+        /// <param name="id">Product ID (RowKey)</param>
+        /// <returns>Edit view with product data populated</returns>
         [HttpGet]
         public async Task<IActionResult> Edit(string id)
         {
@@ -436,6 +525,7 @@ namespace ST10439147_CLDV6212_POE.Controllers
 
             try
             {
+                // Retrieve product data for editing
                 var request = new HttpRequestMessage(HttpMethod.Get,
                     $"{_functionBaseUrl}/products/Product/{id}");
                 request.Headers.Add("x-functions-key", _functionKey);
@@ -477,125 +567,145 @@ namespace ST10439147_CLDV6212_POE.Controllers
             }
         }
 
-        // POST: Product/Edit/5
+        /// <summary>
+        /// POST: Product/Edit/5
+        /// Processes the update of an existing product
+        /// Allows updating product details and optionally uploading a new image
+        /// </summary>
+        /// <param name="id">Product ID from URL</param>
+        /// <param name="product">Updated product data from form</param>
+        /// <param name="imageFile">Optional new image file</param>
+        /// <returns>Redirects to Index on success, or returns to Edit view with errors</returns>
         [HttpPost]
-[ValidateAntiForgeryToken]
-public async Task<IActionResult> Edit(string id, Product product, IFormFile? imageFile)
-{
-    if (string.IsNullOrEmpty(id))
-    {
-        return NotFound();
-    }
-
-    if (id != product.RowKey)
-    {
-        _logger.LogWarning("ID mismatch in Edit: URL ID {UrlId}, Product RowKey {RowKey}",
-            id, product.RowKey);
-        return BadRequest("ID mismatch");
-    }
-
-    // Remove image validation if not required
-    ModelState.Remove("ImageUrl");
-
-    if (!ModelState.IsValid)
-    {
-        return View(product);
-    }
-
-    try
-    {
-        _logger.LogInformation("Updating product: {ProductId}", id);
-
-        using var formData = new MultipartFormDataContent();
-
-        formData.Add(new StringContent(product.Name ?? string.Empty), "Name");
-        formData.Add(new StringContent(product.Description ?? string.Empty), "Description");
-
-        // ✅ Ensure correct decimal format for price (invariant culture uses '.' as decimal separator)
-        var formattedPrice = product.Price.ToString("0.00", System.Globalization.CultureInfo.InvariantCulture);
-        formData.Add(new StringContent(formattedPrice), "Price");
-
-        formData.Add(new StringContent(product.StockQuantity.ToString()), "StockQuantity");
-
-        // Add image only if provided
-        if (imageFile is { Length: > 0 })
+        [ValidateAntiForgeryToken]
+        public async Task<IActionResult> Edit(string id, Product product, IFormFile? imageFile)
         {
-            var fileContent = new StreamContent(imageFile.OpenReadStream());
-            fileContent.Headers.ContentType = new MediaTypeHeaderValue(imageFile.ContentType);
-            formData.Add(fileContent, "imageFile", imageFile.FileName);
+            if (string.IsNullOrEmpty(id))
+            {
+                return NotFound();
+            }
 
-            _logger.LogInformation("Adding new image file for update: {FileName}, Size: {Size} bytes",
-                imageFile.FileName, imageFile.Length);
-        }
+            // Verify URL ID matches product ID to prevent tampering
+            if (id != product.RowKey)
+            {
+                _logger.LogWarning("ID mismatch in Edit: URL ID {UrlId}, Product RowKey {RowKey}",
+                    id, product.RowKey);
+                return BadRequest("ID mismatch");
+            }
 
-        var request = new HttpRequestMessage(HttpMethod.Put, $"{_functionBaseUrl}/products/Product/{id}")
-        {
-            Content = formData
-        };
-        request.Headers.Add("x-functions-key", _functionKey);
+            // Remove image validation - not required for updates
+            ModelState.Remove("ImageUrl");
 
-        var response = await _httpClient.SendAsync(request);
-
-        if (response.IsSuccessStatusCode)
-        {
-            _logger.LogInformation("Product updated successfully: {ProductId}", id);
-            TempData["Success"] = "Product updated successfully!";
-            return RedirectToAction(nameof(Index));
-        }
-
-        var errorContent = await response.Content.ReadAsStringAsync();
-
-        switch (response.StatusCode)
-        {
-            case System.Net.HttpStatusCode.NotFound:
-                _logger.LogWarning("Product not found during update: {ProductId}", id);
-                TempData["Error"] = "The product no longer exists.";
-                return RedirectToAction(nameof(Index));
-
-            case System.Net.HttpStatusCode.Conflict:
-                _logger.LogWarning("Concurrency conflict updating product: {ProductId}", id);
-                ModelState.AddModelError(string.Empty,
-                    "The product was modified by another user. Please refresh and try again.");
+            if (!ModelState.IsValid)
+            {
                 return View(product);
+            }
 
-            default:
-                _logger.LogError("Error updating product: {StatusCode} - {ErrorContent}",
-                    response.StatusCode, errorContent);
+            try
+            {
+                _logger.LogInformation("Updating product: {ProductId}", id);
 
-                try
+                // Prepare form data with updated product information
+                using var formData = new MultipartFormDataContent();
+
+                formData.Add(new StringContent(product.Name ?? string.Empty), "Name");
+                formData.Add(new StringContent(product.Description ?? string.Empty), "Description");
+
+                // Ensure correct decimal format (use period, not comma)
+                var formattedPrice = product.Price.ToString("0.00", System.Globalization.CultureInfo.InvariantCulture);
+                formData.Add(new StringContent(formattedPrice), "Price");
+
+                formData.Add(new StringContent(product.StockQuantity.ToString()), "StockQuantity");
+
+                // Add new image file only if provided (optional for updates)
+                if (imageFile is { Length: > 0 })
                 {
-                    var errorObj = JsonSerializer.Deserialize<Dictionary<string, string>>(errorContent,
-                        new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                    var fileContent = new StreamContent(imageFile.OpenReadStream());
+                    fileContent.Headers.ContentType = new MediaTypeHeaderValue(imageFile.ContentType);
+                    formData.Add(fileContent, "imageFile", imageFile.FileName);
 
-                    if (errorObj != null && errorObj.ContainsKey("error"))
-                        ModelState.AddModelError(string.Empty, errorObj["error"]);
-                    else
-                        ModelState.AddModelError(string.Empty, "Unable to update product. Please try again.");
+                    _logger.LogInformation("Adding new image file for update: {FileName}, Size: {Size} bytes",
+                        imageFile.FileName, imageFile.Length);
                 }
-                catch
+
+                // Create HTTP PUT request to update the product
+                var request = new HttpRequestMessage(HttpMethod.Put, $"{_functionBaseUrl}/products/Product/{id}")
                 {
-                    ModelState.AddModelError(string.Empty,
-                        $"Unable to update product. Server returned: {response.StatusCode}");
+                    Content = formData
+                };
+                request.Headers.Add("x-functions-key", _functionKey);
+
+                var response = await _httpClient.SendAsync(request);
+
+                if (response.IsSuccessStatusCode)
+                {
+                    _logger.LogInformation("Product updated successfully: {ProductId}", id);
+                    TempData["Success"] = "Product updated successfully!";
+                    return RedirectToAction(nameof(Index));
                 }
-                break;
+
+                // Handle various error scenarios
+                var errorContent = await response.Content.ReadAsStringAsync();
+
+                switch (response.StatusCode)
+                {
+                    case System.Net.HttpStatusCode.NotFound:
+                        // Product was deleted by another user
+                        _logger.LogWarning("Product not found during update: {ProductId}", id);
+                        TempData["Error"] = "The product no longer exists.";
+                        return RedirectToAction(nameof(Index));
+
+                    case System.Net.HttpStatusCode.Conflict:
+                        // Product was modified by another user (concurrency conflict)
+                        _logger.LogWarning("Concurrency conflict updating product: {ProductId}", id);
+                        ModelState.AddModelError(string.Empty,
+                            "The product was modified by another user. Please refresh and try again.");
+                        return View(product);
+
+                    default:
+                        // Handle other errors
+                        _logger.LogError("Error updating product: {StatusCode} - {ErrorContent}",
+                            response.StatusCode, errorContent);
+
+                        try
+                        {
+                            var errorObj = JsonSerializer.Deserialize<Dictionary<string, string>>(errorContent,
+                                new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+
+                            if (errorObj != null && errorObj.ContainsKey("error"))
+                                ModelState.AddModelError(string.Empty, errorObj["error"]);
+                            else
+                                ModelState.AddModelError(string.Empty, "Unable to update product. Please try again.");
+                        }
+                        catch
+                        {
+                            ModelState.AddModelError(string.Empty,
+                                $"Unable to update product. Server returned: {response.StatusCode}");
+                        }
+                        break;
+                }
+            }
+            catch (HttpRequestException httpEx)
+            {
+                _logger.LogError(httpEx, "HTTP request error updating product: {ProductId}", id);
+                ModelState.AddModelError(string.Empty, "Unable to connect to the server. Please try again.");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error updating product: {ProductId}", id);
+                ModelState.AddModelError(string.Empty, "An unexpected error occurred. Please try again.");
+            }
+
+            // Return to edit view with errors
+            return View(product);
         }
-    }
-    catch (HttpRequestException httpEx)
-    {
-        _logger.LogError(httpEx, "HTTP request error updating product: {ProductId}", id);
-        ModelState.AddModelError(string.Empty, "Unable to connect to the server. Please try again.");
-    }
-    catch (Exception ex)
-    {
-        _logger.LogError(ex, "Error updating product: {ProductId}", id);
-        ModelState.AddModelError(string.Empty, "An unexpected error occurred. Please try again.");
-    }
 
-    return View(product);
-}
-
-
-        // GET: Product/Delete/5
+        /// <summary>
+        /// GET: Product/Delete/5
+        /// Displays confirmation page before deleting a product
+        /// </summary>
+        /// <param name="id">Product ID (RowKey)</param>
+        /// <returns>Delete confirmation view with product details</returns>
         [HttpGet]
         public async Task<IActionResult> Delete(string id)
         {
@@ -607,6 +717,7 @@ public async Task<IActionResult> Edit(string id, Product product, IFormFile? ima
 
             try
             {
+                // Retrieve product data for delete confirmation
                 var request = new HttpRequestMessage(HttpMethod.Get,
                     $"{_functionBaseUrl}/products/Product/{id}");
                 request.Headers.Add("x-functions-key", _functionKey);
@@ -648,7 +759,13 @@ public async Task<IActionResult> Edit(string id, Product product, IFormFile? ima
             }
         }
 
-        // POST: Product/Delete/5
+        /// <summary>
+        /// POST: Product/Delete/5
+        /// Processes the deletion of a product after user confirmation
+        /// Also deletes associated image from blob storage
+        /// </summary>
+        /// <param name="id">Product ID (RowKey)</param>
+        /// <returns>Redirects to Index with success/error message</returns>
         [HttpPost, ActionName("Delete")]
         [ValidateAntiForgeryToken]
         public async Task<IActionResult> DeleteConfirmed(string id)
@@ -662,6 +779,7 @@ public async Task<IActionResult> Edit(string id, Product product, IFormFile? ima
             {
                 _logger.LogInformation("Deleting product: {ProductId}", id);
 
+                // Create HTTP DELETE request to remove the product
                 var request = new HttpRequestMessage(HttpMethod.Delete,
                     $"{_functionBaseUrl}/products/Product/{id}");
                 request.Headers.Add("x-functions-key", _functionKey);
@@ -670,6 +788,7 @@ public async Task<IActionResult> Edit(string id, Product product, IFormFile? ima
 
                 if (response.IsSuccessStatusCode)
                 {
+                    // Product and associated image deleted successfully
                     _logger.LogInformation("Product deleted successfully: {ProductId}", id);
                     TempData["Success"] = "Product deleted successfully!";
                     return RedirectToAction(nameof(Index));
@@ -677,11 +796,13 @@ public async Task<IActionResult> Edit(string id, Product product, IFormFile? ima
 
                 if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
                 {
+                    // Product no longer exists (may have been deleted by another user)
                     _logger.LogWarning("Product not found during delete: {ProductId}", id);
                     TempData["Error"] = "Product not found.";
                     return RedirectToAction(nameof(Index));
                 }
 
+                // Log any other errors that occur during deletion
                 var errorContent = await response.Content.ReadAsStringAsync();
                 _logger.LogError("Error deleting product: {StatusCode} - {ErrorContent}",
                     response.StatusCode, errorContent);
@@ -690,12 +811,14 @@ public async Task<IActionResult> Edit(string id, Product product, IFormFile? ima
             }
             catch (HttpRequestException httpEx)
             {
+                // Handle network connectivity issues
                 _logger.LogError(httpEx, "HTTP request error deleting product: {ProductId}", id);
                 TempData["Error"] = "Unable to connect to the server. Please try again.";
                 return RedirectToAction(nameof(Index));
             }
             catch (Exception ex)
             {
+                // Catch any unexpected errors
                 _logger.LogError(ex, "Error deleting product: {ProductId}", id);
                 TempData["Error"] = "Unable to delete product. Please try again.";
                 return RedirectToAction(nameof(Index));

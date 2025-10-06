@@ -31,12 +31,24 @@ namespace ST10439147_CLDV6212_POE.Functions
 
         //--------------------------------------------------------------------------------------------------------------------------------------------------------------//
         // Queue Trigger Function 1: Process Order Messages (for monitoring/logging only)
+        // PURPOSE: Log order details, verify order exists, check stock levels for alerts
+        // CRITICAL: This function DOES NOT update stock - stock is updated in ProcessCompleteOrder
+        //  Uses Newtonsoft.Json for deserialization to handle case-insensitive property names
+        //  Retries order verification up to 3 times with delays to handle eventual consistency
+        //  Logs detailed information for monitoring and alerting purposes
+        //  Acknowledges all messages to prevent poison queue buildup
+        //  Designed for robustness and resilience in production environments
+        //  Ensure the queue messages conform to the expected JSON structure
+        //  Adjust logging levels as needed for production vs. development
+        //  This function is part of the isolated worker model for Azure Functions
+        //  Ensure the Function App has appropriate permissions to access Azure Table Storage
+        //  Monitor logs regularly to catch and address any issues promptly
         [Function("ProcessOrderQueue")]
         public async Task ProcessOrderQueue(
-            [QueueTrigger("ordermsg", Connection = "AzureWebJobsStorage")] string queueMessage)
+            [QueueTrigger("ordermsg", Connection = "AzureWebJobsStorage")] string queueMessage)// Message from "ordermsg" queue
         {
-            _logger.LogInformation("=== ProcessOrderQueue TRIGGERED ===");
-            _logger.LogInformation("Raw message: {Message}", queueMessage);
+            _logger.LogInformation("=== ProcessOrderQueue TRIGGERED ===");// Log function trigger
+            _logger.LogInformation("Raw message: {Message}", queueMessage);// Log raw message
 
             try
             {
@@ -69,7 +81,7 @@ namespace ST10439147_CLDV6212_POE.Functions
                             NamingStrategy = new Newtonsoft.Json.Serialization.CamelCaseNamingStrategy()
                         }
                     };
-
+                    // Deserialize the message, allowing for case-insensitive property names
                     orderMessage = JsonConvert.DeserializeObject<OrderMessage>(queueMessage, settings);
 
                     if (orderMessage != null)
@@ -192,6 +204,20 @@ namespace ST10439147_CLDV6212_POE.Functions
 
         //--------------------------------------------------------------------------------------------------------------------------------------------------------------//
         // Queue Trigger Function 2: Process Inventory Messages (for logging/monitoring only)
+        // PURPOSE: Log inventory changes, verify product exists, check stock levels for alerts
+        // CRITICAL: This function DOES NOT update stock - stock is updated in ProcessCompleteOrder
+        //  Parses semi-structured text messages to extract product and quantity
+        //  Logs detailed information for monitoring and alerting purposes
+        //  Acknowledges all messages to prevent poison queue buildup
+        //  Designed for robustness and resilience in production environments
+        //  Ensure the queue messages conform to the expected text structure
+        //  Adjust logging levels as needed for production vs. development
+        //  This function is part of the isolated worker model for Azure Functions
+        //  Ensure the Function App has appropriate permissions to access Azure Table Storage
+        //  Monitor logs regularly to catch and address any issues promptly
+        //  Note: This function expects messages in a specific text format, e.g.:
+        //        "Product: {ProductId}, Quantity: {Quantity}, Action: {ActionType}"
+        //        Adjust parsing logic as needed based on actual message format
         [Function("ProcessInventoryQueue")]
         public async Task ProcessInventoryQueue(
             [QueueTrigger("inventory-msg", Connection = "AzureWebJobsStorage")] string inventoryMessage)
@@ -220,14 +246,14 @@ namespace ST10439147_CLDV6212_POE.Functions
                 {
                     productId = productMatch.Groups[1].Value.Trim();
                 }
-
+                // Extract quantity
                 var quantityMatch = System.Text.RegularExpressions.Regex.Match(
                     inventoryMessage, @"Quantity:\s*(\d+)");
                 if (quantityMatch.Success)
                 {
                     int.TryParse(quantityMatch.Groups[1].Value, out quantity);
                 }
-
+                // Determine action type from message content
                 if (inventoryMessage.Contains("cancelled", StringComparison.OrdinalIgnoreCase) ||
                     inventoryMessage.Contains("restored", StringComparison.OrdinalIgnoreCase))
                 {
@@ -250,9 +276,10 @@ namespace ST10439147_CLDV6212_POE.Functions
                 {
                     try
                     {
+                        // Retrieve product details
                         var product = await _tableService.GetProductByIdAsync("Product", productId);
 
-                        if (product != null)
+                        if (product != null)// Log stock report
                         {
                             _logger.LogInformation("📊 STOCK REPORT:");
                             _logger.LogInformation("  Product: {ProductName} (ID: {ProductId})",
