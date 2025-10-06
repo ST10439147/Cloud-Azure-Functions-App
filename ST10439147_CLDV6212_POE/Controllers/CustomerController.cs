@@ -10,6 +10,7 @@
 // IIEVC School of Computer Science Youtube channel for Azure services setup and use https://www.youtube.com/@VCSOCS
 // AzureApp project done in class with lecturer
 
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using ST10439147_CLDV6212_POE.Models;
 using Microsoft.Extensions.Logging;
@@ -58,6 +59,7 @@ namespace ST10439147_CLDV6212_POE.Controllers
         /// </summary>
         /// <param name="searchName">Optional search parameter to filter customers by name</param>
         /// <returns>View with list of customers</returns>
+        [Authorize(Roles = "Admin")]
         public async Task<IActionResult> Index(string searchName)
         {
             try
@@ -129,6 +131,7 @@ namespace ST10439147_CLDV6212_POE.Controllers
         /// Displays the form for creating a new customer.
         /// </summary>
         /// <returns>View with empty customer model</returns>
+        [Authorize(Roles = "Customer")]
         [HttpGet]
         public IActionResult Create()
         {
@@ -144,6 +147,7 @@ namespace ST10439147_CLDV6212_POE.Controllers
         /// </summary>
         /// <param name="customer">Customer object populated from the form</param>
         /// <returns>Redirects to Index on success, returns to form on failure</returns>
+        [ Authorize(Roles = "Customer")]
         [HttpPost]
         [ValidateAntiForgeryToken] // Protects against CSRF attacks
         public async Task<IActionResult> Create(Customer customer)
@@ -214,6 +218,7 @@ namespace ST10439147_CLDV6212_POE.Controllers
         /// <param name="partitionKey">Azure Table Storage partition key</param>
         /// <param name="rowKey">Azure Table Storage row key (unique identifier)</param>
         /// <returns>View with customer data for editing</returns>
+        [Authorize(Roles = "Customer")]
         [HttpGet]
         public async Task<IActionResult> Edit(string partitionKey, string rowKey)
         {
@@ -272,6 +277,7 @@ namespace ST10439147_CLDV6212_POE.Controllers
         /// <param name="rowKey">Row key from route</param>
         /// <param name="customer">Updated customer data from form</param>
         /// <returns>Redirects to Index on success, returns to form on failure</returns>
+        [Authorize(Roles = "Customer")]
         [HttpPost]
         [ValidateAntiForgeryToken]
         public async Task<IActionResult> Edit(string partitionKey, string rowKey, Customer customer)
@@ -345,6 +351,7 @@ namespace ST10439147_CLDV6212_POE.Controllers
         /// <param name="partitionKey">Partition key of customer to delete</param>
         /// <param name="rowKey">Row key of customer to delete</param>
         /// <returns>View with customer details for confirmation</returns>
+        [Authorize(Roles = "Customer")]
         [HttpGet]
         public async Task<IActionResult> Delete(string partitionKey, string rowKey)
         {
@@ -401,6 +408,7 @@ namespace ST10439147_CLDV6212_POE.Controllers
         /// <param name="partitionKey">Partition key of customer to delete</param>
         /// <param name="rowKey">Row key of customer to delete</param>
         /// <returns>Redirects to Index with success or error message</returns>
+        [Authorize(Roles = "Customer")]
         [HttpPost, ActionName("Delete")]
         [ValidateAntiForgeryToken]
         public async Task<IActionResult> DeleteConfirmed(string partitionKey, string rowKey)

@@ -10,6 +10,7 @@
 // IIEVC School of Computer Science Youtube channel for Azure services setup and use https://www.youtube.com/@VCSOCS
 // AzureApp project done in class with lecturer
 
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using ST10439147_CLDV6212_POE.Models;
 using System.Net.Http.Headers;
@@ -76,6 +77,7 @@ namespace ST10439147_CLDV6212_POE.Controllers
         /// Retrieves file names from Azure Function and transforms them into FileUpload objects for display.
         /// </summary>
         /// <returns>View with list of uploaded files</returns>
+        [Authorize(Roles = "Admin")]
         public async Task<IActionResult> Index()
         {
             try
@@ -143,6 +145,7 @@ namespace ST10439147_CLDV6212_POE.Controllers
         /// Displays the file upload form to the user.
         /// </summary>
         /// <returns>View with file upload form</returns>
+        [Authorize(Roles = "Admin")]
         [HttpGet]
         public IActionResult Upload()
         {
@@ -155,7 +158,8 @@ namespace ST10439147_CLDV6212_POE.Controllers
         /// Validates file presence, type, and size before uploading to Azure Blob Storage via Azure Function.
         /// </summary>
         /// <param name="file">File uploaded from the form</param>
-        /// <returns>Redirects to Index on success, returns to form on failure</returns>
+        /// <returns>Redirects to Index on success, returns to form on failure</returns
+        [Authorize(Roles = "Admin")]
         [HttpPost]
         [ValidateAntiForgeryToken] // Protects against CSRF attacks
         public async Task<IActionResult> Upload(IFormFile file)
@@ -267,6 +271,7 @@ namespace ST10439147_CLDV6212_POE.Controllers
         /// </summary>
         /// <param name="fileName">Name of the file to download</param>
         /// <returns>File stream for download or redirect with error message</returns>
+        [Authorize(Roles = "Admin")]
         public async Task<IActionResult> Download(string fileName)
         {
             // Validate filename parameter
@@ -340,6 +345,7 @@ namespace ST10439147_CLDV6212_POE.Controllers
         /// </summary>
         /// <param name="fileName">Name of the file to delete</param>
         /// <returns>Redirects to Index with success or error message</returns>
+        [Authorize(Roles = "Admin")]
         [HttpPost]
         [ValidateAntiForgeryToken] // Protects against CSRF attacks
         public async Task<IActionResult> Delete(string fileName)
