@@ -3,37 +3,13 @@
 }
 
 <div class="hero-section text-center mb-5">
-    <div class="d-flex justify-content-end mb-3">
-        <a asp-controller="Account" asp-action="Login" class="btn btn-light btn-login">
-            <i class="fas fa-sign-in-alt me-2"></i>Login
-        </a>
-    </div>
-    <h1 class="display-3 fw-bold text-white mb-3">Welcome to ABC Retail</h1>
-    <p class="lead text-white">Manage your business operations with ease</p>
+    <h1 class="display-3 fw-bold text-primary mb-3">Welcome to ABC Retail the Dashboard</h1>
+    <p class="lead text-muted">Manage your business operations with ease</p>
 </div>
 
 <div class="container">
-    <!-- About Section -->
-    <div class="about-section mb-5 p-4">
-        <h2 class="text-primary mb-4">About ABC Retail</h2>
-        <p class="mb-3">
-            ABC Retail is a rapidly growing online retail company that sells a wide range of products through its digital platform.
-            The company focuses on delivering a seamless shopping experience by efficiently managing customer orders, product information,
-            and online transactions.
-        </p>
-        <p class="mb-3">
-            As part of its digital transformation, ABC Retail is modernizing its systems by migrating from aging on-premises infrastructure
-            to the Microsoft Azure cloud platform. This shift allows the company to improve the scalability, reliability, and performance
-            of its operations — especially during high-traffic periods like the Christmas holidays.
-        </p>
-        <p class="mb-0">
-            Through the use of Azure Storage, SQL Databases, and cloud-based message queuing, ABC Retail aims to optimize order processing,
-            enhance data analytics, and provide faster, more personalized customer experiences.
-        </p>
-    </div>
-
     <div class="row g-4">
-        <!-- Customers Tile 
+        <!-- Customers Tile -->
         <div class="col-md-6 col-lg-3">
             <a href="@Url.Action("Index", "Customer")" class="text-decoration-none">
                 <div class="tile-card h-100 p-4 text-center">
@@ -47,9 +23,9 @@
                     </div>
                 </div>
             </a>
-        </div>-->
+        </div>
 
-        <!-- Products Tile 
+        <!-- Products Tile -->
         <div class="col-md-6 col-lg-3">
             <a href="@Url.Action("Index", "Product")" class="text-decoration-none">
                 <div class="tile-card h-100 p-4 text-center">
@@ -63,9 +39,9 @@
                     </div>
                 </div>
             </a>
-        </div>-->
+        </div>
 
-        <!-- Orders Tile 
+        <!-- Orders Tile -->
         <div class="col-md-6 col-lg-3">
             <a href="@Url.Action("Index", "Order")" class="text-decoration-none">
                 <div class="tile-card h-100 p-4 text-center">
@@ -79,9 +55,9 @@
                     </div>
                 </div>
             </a>
-        </div>-->
+        </div>
 
-        <!-- Contracts Tile 
+        <!-- Contracts Tile -->
         <div class="col-md-6 col-lg-3">
             <a href="@Url.Action("Index", "FileUpload")" class="text-decoration-none">
                 <div class="tile-card h-100 p-4 text-center">
@@ -95,7 +71,7 @@
                     </div>
                 </div>
             </a>
-        </div>-->
+        </div>
     </div>
 </div>
 
@@ -106,38 +82,7 @@
         padding: 4rem 2rem;
         margin: -1rem -15px 2rem -15px;
         border-radius: 0 0 20px 20px;
-        position: relative;
     }
-
-    .btn-login {
-        padding: 0.5rem 1.5rem;
-        font-weight: 500;
-        border-radius: 25px;
-        transition: all 0.3s ease;
-        box-shadow: 0 2px 8px rgba(0,0,0,0.2);
-    }
-
-        .btn-login:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 4px 12px rgba(0,0,0,0.3);
-        }
-
-    .about-section {
-        background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
-        border-radius: 15px;
-        border: 1px solid #dee2e6;
-        box-shadow: 0 2px 10px rgba(0,0,0,0.05);
-    }
-
-        .about-section h2 {
-            font-weight: 600;
-        }
-
-        .about-section p {
-            color: #495057;
-            line-height: 1.7;
-            text-align: justify;
-        }
 
     .tile-card {
         background: white;
@@ -197,5 +142,27 @@
 
     .tile-card:hover .tile-arrow {
         opacity: 1;
+    }
+
+    .stats-section {
+        background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+        border: 1px solid #dee2e6;
+    }
+
+    .stat-item h4 {
+        font-size: 2rem;
+        font-weight: bold;
+        margin-bottom: 0.5rem;
+    }
+
+    .stat-item p {
+        margin-bottom: 0;
+        font-size: 0.9rem;
+    }
+
+    .tile-card {
+        margin-bottom: 1rem;
+    }
+
     }
 </style>

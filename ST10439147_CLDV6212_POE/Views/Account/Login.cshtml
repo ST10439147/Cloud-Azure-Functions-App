@@ -1,0 +1,253 @@
+﻿@model ST10439147_CLDV6212_POE.Models.LoginViewModel
+
+@{
+    ViewData["Title"] = "Login - ABC Retail";
+}
+
+<div class="login-container">
+    <div class="container-fluid">
+        <div class="row min-vh-100">
+            <!-- Left Side - Branding/Info -->
+            <div class="col-lg-6 d-none d-lg-flex login-info-side">
+                <div class="d-flex flex-column justify-content-center align-items-center text-white p-5">
+                    <div class="text-center mb-4">
+                        <i class="fas fa-shopping-bag display-1 mb-4"></i>
+                        <h2 class="mb-3">ABC Retail</h2>
+                        <p class="lead mb-4">Your trusted online retail partner for seamless shopping experiences</p>
+                    </div>
+
+                    <div class="features-list text-start">
+                        <div class="feature-item mb-3">
+                            <i class="fas fa-check-circle me-3"></i>
+                            <span>Wide range of quality products</span>
+                        </div>
+                        <div class="feature-item mb-3">
+                            <i class="fas fa-check-circle me-3"></i>
+                            <span>Secure order management</span>
+                        </div>
+                        <div class="feature-item mb-3">
+                            <i class="fas fa-check-circle me-3"></i>
+                            <span>Fast and reliable delivery</span>
+                        </div>
+                        <div class="feature-item mb-3">
+                            <i class="fas fa-check-circle me-3"></i>
+                            <span>Azure-powered cloud platform</span>
+                        </div>
+                        <div class="feature-item mb-3">
+                            <i class="fas fa-check-circle me-3"></i>
+                            <span>Personalized shopping experience</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Right Side - Login Form -->
+            <div class="col-lg-6 d-flex align-items-center justify-content-center">
+                <div class="login-form-container p-4">
+                    <div class="text-center mb-4">
+                        <div class="d-lg-none mb-3">
+                            <i class="fas fa-shopping-bag text-success" style="font-size: 3rem;"></i>
+                        </div>
+                        <h3 class="mb-2">Welcome Back</h3>
+                        <p class="text-muted">Sign in to manage your retail operations</p>
+                    </div>
+
+                    <form asp-action="Login" asp-controller="Account" method="post" class="login-form">
+                        @Html.AntiForgeryToken()
+                        <input type="hidden" name="returnUrl" value="@ViewBag.ReturnUrl" />
+
+                        <div class="mb-3">
+                            <label asp-for="Email" class="form-label">Email</label>
+                            <div class="input-group">
+                                <span class="input-group-text">
+                                    <i class="fas fa-envelope"></i>
+                                </span>
+                                <input asp-for="Email" class="form-control" placeholder="Enter your email address" />
+                            </div>
+                            <span asp-validation-for="Email" class="text-danger small"></span>
+                        </div>
+
+                        <div class="mb-3">
+                            <label asp-for="Password" class="form-label">Password</label>
+                            <div class="input-group">
+                                <span class="input-group-text">
+                                    <i class="fas fa-lock"></i>
+                                </span>
+                                <input asp-for="Password" type="password" class="form-control" id="passwordInput" placeholder="Enter your password" />
+                                <button class="btn btn-outline-secondary toggle-password" type="button">
+                                    <i class="fas fa-eye"></i>
+                                </button>
+                            </div>
+                            <span asp-validation-for="Password" class="text-danger small"></span>
+                        </div>
+
+                        <div class="row mb-3">
+                            <div class="col-12">
+                                <div class="form-check">
+                                    <input asp-for="RememberMe" class="form-check-input" />
+                                    <label asp-for="RememberMe" class="form-check-label">
+                                        Remember me
+                                    </label>
+                                </div>
+                            </div>
+                        </div>
+
+                        @if (!string.IsNullOrEmpty(ViewBag.ErrorMessage))
+                        {
+                            <div class="alert alert-danger" role="alert">
+                                <i class="fas fa-exclamation-triangle me-2"></i>
+                                @ViewBag.ErrorMessage
+                            </div>
+                        }
+
+                        @if (ViewData.ModelState.ErrorCount > 0 && !ViewData.ModelState.IsValid)
+                        {
+                            <div class="alert alert-danger" role="alert">
+                                <i class="fas fa-exclamation-triangle me-2"></i>
+                                @Html.ValidationSummary(false, "", new { @class = "mb-0" })
+                            </div>
+                        }
+
+                        <div class="d-grid gap-2">
+                            <button type="submit" class="btn btn-primary btn-lg">
+                                <i class="fas fa-sign-in-alt me-2"></i>
+                                Sign In
+                            </button>
+                        </div>
+                    </form>
+
+                    <div class="text-center mt-4">
+                        <p class="text-muted small">
+                            Don't have an account?
+                            <a asp-action="Register" asp-controller="Account" class="text-decoration-none">
+                                <strong>Register here</strong>
+                            </a>
+                        </p>
+                        <p class="text-muted small mt-2">
+                            Need help? Contact our
+                            <strong>Customer Support</strong> team.
+                        </p>
+                    </div>
+
+                    <div class="text-center mt-3">
+                        <a asp-action="Index" asp-controller="Home" class="btn btn-outline-secondary">
+                            <i class="fas fa-arrow-left me-2"></i>
+                            Back to Home
+                        </a>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Add Font Awesome for icons -->
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+
+@section Scripts {
+    @{
+        await Html.RenderPartialAsync("_ValidationScriptsPartial");
+    }
+
+    <script>
+        // Toggle password visibility
+        document.addEventListener('DOMContentLoaded', function() {
+            const togglePassword = document.querySelector('.toggle-password');
+            const passwordInput = document.getElementById('passwordInput');
+
+            if (togglePassword && passwordInput) {
+                togglePassword.addEventListener('click', function() {
+                    const type = passwordInput.getAttribute('type') === 'password' ? 'text' : 'password';
+                    passwordInput.setAttribute('type', type);
+
+                    const icon = this.querySelector('i');
+                    icon.classList.toggle('fa-eye');
+                    icon.classList.toggle('fa-eye-slash');
+                });
+            }
+        });
+    </script>
+}
+
+<style>
+    .login-info-side {
+        background: linear-gradient(135deg, darkgreen 0%, black 100%);
+    }
+
+    .login-form-container {
+        max-width: 450px;
+        width: 100%;
+    }
+
+    .feature-item {
+        font-size: 1rem;
+        display: flex;
+        align-items: center;
+    }
+
+        .feature-item i {
+            color: #90EE90;
+            font-size: 1.2rem;
+        }
+
+    .input-group-text {
+        background-color: #f8f9fa;
+        border-right: none;
+    }
+
+    .input-group input {
+        border-left: none;
+    }
+
+        .input-group input:focus {
+            border-color: #ced4da;
+            box-shadow: none;
+        }
+
+            .input-group input:focus + .input-group-text,
+            .input-group-text + input:focus {
+                border-color: #28a745;
+            }
+
+    .btn-primary {
+        background: linear-gradient(135deg, darkgreen 0%, #006400 100%);
+        border: none;
+        transition: all 0.3s ease;
+    }
+
+        .btn-primary:hover {
+            background: linear-gradient(135deg, #006400 0%, darkgreen 100%);
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(0,100,0,0.3);
+        }
+
+    .btn-outline-secondary {
+        border-color: #6c757d;
+        color: #6c757d;
+        transition: all 0.3s ease;
+    }
+
+        .btn-outline-secondary:hover {
+            background-color: #6c757d;
+            color: white;
+        }
+
+    .toggle-password {
+        cursor: pointer;
+        border-left: none;
+    }
+
+    .alert {
+        border-radius: 8px;
+    }
+
+    a.text-decoration-none {
+        color: darkgreen;
+        font-weight: 500;
+    }
+
+        a.text-decoration-none:hover {
+            color: #006400;
+            text-decoration: underline !important;
+        }
+</style>

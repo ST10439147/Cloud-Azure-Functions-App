@@ -1,73 +1,82 @@
+// StudentNumber: ST10439147
+// StudentName: Dillon Rinkwest
+// CourseCode: CLDV6212
+// POE Part: 3 - Program.cs with Custom Authentication
 
 using Microsoft.AspNetCore.Authentication.Cookies;
-using ST10439147_CLDV6212_POE.Models;
 using ST10439147_CLDV6212_POE.Services;
 
-namespace ST10439147_CLDV6212_POE
-{
-    public class Program
+var builder = WebApplication.CreateBuilder(args);
+
+// Add services to the container
+builder.Services.AddControllersWithViews();
+
+// Register HttpClient
+builder.Services.AddHttpClient();
+
+// Register ADO.NET Database Helper
+builder.Services.AddScoped<DatabaseHelper>();
+
+// Register Azure services
+builder.Services.AddScoped<BlobService>();
+builder.Services.AddScoped<TableService>();
+builder.Services.AddScoped<QueueService>();
+
+// Register Authentication Service (using ADO.NET)
+builder.Services.AddScoped<AuthenticationService>();
+
+// Configure Cookie Authentication (NO IDENTITY)
+builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationScheme)
+    .AddCookie(options =>
     {
-        public static void Main(string[] args)
-        {
-            var builder = WebApplication.CreateBuilder(args);
+        options.LoginPath = "/Account/Login";
+        options.LogoutPath = "/Account/Logout";
+        options.AccessDeniedPath = "/Account/AccessDenied";
+        options.ExpireTimeSpan = TimeSpan.FromHours(2);
+        options.SlidingExpiration = true;
+        options.Cookie.HttpOnly = true;
+        options.Cookie.SecurePolicy = CookieSecurePolicy.Always;
+        options.Cookie.SameSite = SameSiteMode.Lax;
+    });
 
-            // Add services to the container.
-            builder.Services.AddControllersWithViews();
-            // Azure Storage Services
+// Add Authorization
+builder.Services.AddAuthorization(options =>
+{
+    options.AddPolicy("AdminOnly", policy => policy.RequireRole("Admin"));
+    options.AddPolicy("CustomerOnly", policy => policy.RequireRole("Customer"));
+});
 
-            builder.Services.AddSingleton<TableService>();
-            builder.Services.AddSingleton<QueueService>();
-            builder.Services.AddSingleton<FileShareService>();
-            builder.Services.AddSingleton<BlobService>();
+// Add session support for cart functionality
+builder.Services.AddSession(options =>
+{
+    options.IdleTimeout = TimeSpan.FromHours(2);
+    options.Cookie.HttpOnly = true;
+    options.Cookie.IsEssential = true;
+});
 
-            // Add Authentication Services
-            builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationScheme)
-                .AddCookie(options =>
-                {
-                    options.LoginPath = "/Account/Login";
-                    options.LogoutPath = "/Account/Logout";
-                    options.AccessDeniedPath = "/Account/AccessDenied";
-                    options.ExpireTimeSpan = TimeSpan.FromHours(2);
-                    options.SlidingExpiration = true;
-                    options.Cookie.HttpOnly = true;
-                    options.Cookie.SecurePolicy = CookieSecurePolicy.Always;
-                    options.Cookie.SameSite = SameSiteMode.Lax;
-                });
+var app = builder.Build();
 
-            builder.Services.AddAuthorization(options =>
-            {
-                options.AddPolicy("AdminOnly", policy => policy.RequireRole("Admin"));
-                options.AddPolicy("CustomerOnly", policy => policy.RequireRole("Customer"));
-            });
-
-            // Register AuthenticationService
-            builder.Services.AddScoped<AuthenticationService>();
-
-            builder.Services.AddHttpClient();
-
-            var app = builder.Build();
-
-            // Configure the HTTP request pipeline.
-            if (!app.Environment.IsDevelopment())
-            {
-                app.UseExceptionHandler("/Home/Error");
-                // The default HSTS value is 30 days. You may want to change this for production scenarios, see https://aka.ms/aspnetcore-hsts.
-                app.UseHsts();
-            }
-
-            app.UseHttpsRedirection();
-            app.UseStaticFiles(); 
-
-            app.UseRouting();
-
-            app.UseAuthentication();
-            app.UseAuthorization();
-
-            app.MapControllerRoute(
-                name: "default",
-                pattern: "{controller=Home}/{action=Index}/{id?}");
-
-            app.Run();
-        }
-    }
+// Configure the HTTP request pipeline
+if (!app.Environment.IsDevelopment())
+{
+    app.UseExceptionHandler("/Home/Error");
+    app.UseHsts();
 }
+
+app.UseHttpsRedirection();
+app.UseStaticFiles();
+
+app.UseRouting();
+
+// Authentication & Authorization middleware (in this order!)
+app.UseAuthentication();
+app.UseAuthorization();
+
+// Session middleware
+app.UseSession();
+
+app.MapControllerRoute(
+    name: "default",
+    pattern: "{controller=Home}/{action=Index}/{id?}");
+
+app.Run();

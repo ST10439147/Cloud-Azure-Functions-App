@@ -1,7 +1,7 @@
 ﻿// StudentNumber: ST10439147
 // StudentName: Dillon Rinkwest
 // CourseCode: CLDV6212
-// POE Part: 3 - Account Controller
+// POE Part: 3 - Enhanced Account Controller
 
 using Microsoft.AspNetCore.Mvc;
 using ST10439147_CLDV6212_POE.Models;
@@ -9,6 +9,7 @@ using ST10439147_CLDV6212_POE.Services;
 using System.Security.Claims;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
+using Microsoft.AspNetCore.Authorization;
 
 namespace ST10439147_CLDV6212_POE.Controllers
 {
@@ -18,13 +19,16 @@ namespace ST10439147_CLDV6212_POE.Controllers
     public class AccountController : Controller
     {
         private readonly ST10439147_CLDV6212_POE.Services.AuthenticationService _authService;
+        private readonly TableService _tableService;
         private readonly ILogger<AccountController> _logger;
 
         public AccountController(
             ST10439147_CLDV6212_POE.Services.AuthenticationService authService,
+            TableService tableService,
             ILogger<AccountController> logger)
         {
             _authService = authService;
+            _tableService = tableService;
             _logger = logger;
         }
 
@@ -33,6 +37,16 @@ namespace ST10439147_CLDV6212_POE.Controllers
         [HttpGet]
         public IActionResult Login(string? returnUrl = null)
         {
+            // Redirect if already logged in
+            if (User.Identity?.IsAuthenticated == true)
+            {
+                if (User.IsInRole("Admin"))
+                {
+                    return RedirectToAction("Index", "Admin");
+                }
+                return RedirectToAction("Index", "Home");
+            }
+
             ViewBag.ReturnUrl = returnUrl;
             return View();
         }
@@ -62,9 +76,9 @@ namespace ST10439147_CLDV6212_POE.Controllers
             var claims = new List<Claim>
             {
                 new Claim(ClaimTypes.NameIdentifier, user.UserId.ToString()),
-                new Claim(ClaimTypes.Name, user.Username),
                 new Claim(ClaimTypes.Email, user.Email),
-                new Claim(ClaimTypes.Role, user.Role)
+                new Claim(ClaimTypes.Role, user.Role),
+                new Claim("FullName", user.Email) // Can be enhanced with actual name from customer record
             };
 
             if (!string.IsNullOrEmpty(user.CustomerId))
@@ -80,7 +94,8 @@ namespace ST10439147_CLDV6212_POE.Controllers
                 IsPersistent = model.RememberMe,
                 ExpiresUtc = model.RememberMe
                     ? DateTimeOffset.UtcNow.AddDays(30)
-                    : DateTimeOffset.UtcNow.AddHours(2)
+                    : DateTimeOffset.UtcNow.AddHours(2),
+                AllowRefresh = true
             };
 
             await HttpContext.SignInAsync(
@@ -88,7 +103,7 @@ namespace ST10439147_CLDV6212_POE.Controllers
                 claimsPrincipal,
                 authProperties);
 
-            _logger.LogInformation("User {Username} logged in successfully", user.Username);
+            _logger.LogInformation("User {Email} logged in successfully", user.Email);
 
             TempData["Success"] = "Login successful!";
 
@@ -112,6 +127,12 @@ namespace ST10439147_CLDV6212_POE.Controllers
         [HttpGet]
         public IActionResult Register()
         {
+            // Redirect if already logged in
+            if (User.Identity?.IsAuthenticated == true)
+            {
+                return RedirectToAction("Index", "Home");
+            }
+
             return View();
         }
 
@@ -134,7 +155,7 @@ namespace ST10439147_CLDV6212_POE.Controllers
                 return View(model);
             }
 
-            TempData["Success"] = "Registration successful! Please log in.";
+            TempData["Success"] = "Registration successful! Please log in with your credentials.";
             return RedirectToAction(nameof(Login));
         }
 
@@ -162,6 +183,7 @@ namespace ST10439147_CLDV6212_POE.Controllers
 
         //--------------------------------------------------------------------------------------------------------------------------------------------------------------//
         // GET: Account/Profile
+        [Authorize]
         [HttpGet]
         public async Task<IActionResult> Profile()
         {
@@ -180,7 +202,65 @@ namespace ST10439147_CLDV6212_POE.Controllers
                 return RedirectToAction("Index", "Home");
             }
 
+            // Get customer details if available
+            Customer? customer = null;
+            if (!string.IsNullOrEmpty(user.CustomerId))
+            {
+                try
+                {
+                    customer = await _tableService.GetCustomerByIdAsync("Customer", user.CustomerId);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Unable to load customer details for user {UserId}", userId);
+                }
+            }
+
+            ViewBag.Customer = customer;
             return View(user);
+        }
+
+        //--------------------------------------------------------------------------------------------------------------------------------------------------------------//
+        // GET: Account/MyOrders - View customer's orders
+        [Authorize(Roles = "Customer")]
+        [HttpGet]
+        public async Task<IActionResult> MyOrders()
+        {
+            var customerIdClaim = User.FindFirst("CustomerId")?.Value;
+
+            if (string.IsNullOrEmpty(customerIdClaim))
+            {
+                TempData["Error"] = "Customer information not found.";
+                return RedirectToAction("Index", "Home");
+            }
+
+            try
+            {
+                // Get all orders and filter by customer ID
+                var allOrders = await _tableService.GetAllOrdersAsync();
+                var customerOrders = allOrders.Where(o => o.CustomerId == customerIdClaim).ToList();
+
+                // Load product and customer details for each order
+                foreach (var order in customerOrders)
+                {
+                    try
+                    {
+                        var product = await _tableService.GetProductByIdAsync("Product", order.ProductId);
+                        ViewBag.Products = ViewBag.Products ?? new Dictionary<string, Product>();
+                        ((Dictionary<string, Product>)ViewBag.Products)[order.ProductId] = product;
+                    }
+                    catch { }
+                }
+
+                return View(customerOrders);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error loading orders for customer {CustomerId}", customerIdClaim);
+                TempData["Error"] = "Unable to load your orders.";
+                return RedirectToAction("Index", "Home");
+            }
         }
     }
 }
+//-----------------------------------------------------DDDDooooo END OF FILE oooooDDDD-----------------------------------------------------//
