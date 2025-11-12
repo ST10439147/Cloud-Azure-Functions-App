@@ -7,6 +7,7 @@ using ST10439147_CLDV6212_POE.Models;
 using System.Data.SqlClient;
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.Json;
 
 namespace ST10439147_CLDV6212_POE.Services
 {
@@ -17,17 +18,22 @@ namespace ST10439147_CLDV6212_POE.Services
     public class AuthenticationService
     {
         private readonly DatabaseHelper _dbHelper;
-        private readonly TableService _tableService;
         private readonly ILogger<AuthenticationService> _logger;
+        private readonly HttpClient _httpClient;
+        private readonly string _functionBaseUrl;
+        private readonly string _functionKey;
 
         public AuthenticationService(
             DatabaseHelper dbHelper,
-            TableService tableService,
-            ILogger<AuthenticationService> logger)
+            ILogger<AuthenticationService> logger,
+            IHttpClientFactory httpClientFactory,
+            IConfiguration configuration)
         {
             _dbHelper = dbHelper ?? throw new ArgumentNullException(nameof(dbHelper));
-            _tableService = tableService ?? throw new ArgumentNullException(nameof(tableService));
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+            _httpClient = httpClientFactory.CreateClient();
+            _functionBaseUrl = configuration["AzureFunctions:BaseUrl"];
+            _functionKey = configuration["AzureFunctions:FunctionKey"];
         }
 
         //--------------------------------------------------------------------------------------------------------------------------------------------------------------//
@@ -108,6 +114,7 @@ namespace ST10439147_CLDV6212_POE.Services
         //--------------------------------------------------------------------------------------------------------------------------------------------------------------//
         /// <summary>
         /// Register a new customer with login credentials
+        /// Creates customer in Azure Table Storage via Azure Functions and user in SQL Database
         /// </summary>
         public async Task<(bool success, string message, User? user)> RegisterCustomerAsync(RegisterViewModel model)
         {
@@ -120,14 +127,14 @@ namespace ST10439147_CLDV6212_POE.Services
 
                 _logger.LogInformation("Registration attempt for email: {Email}", model.Email);
 
-                // Check if email already exists
+                // Check if email already exists in SQL Database
                 if (await EmailExistsAsync(model.Email))
                 {
                     _logger.LogWarning("Email already exists: {Email}", model.Email);
                     return (false, "Email already exists. Please use a different email address.", null);
                 }
 
-                // Create customer record in Azure Table Storage
+                // Step 1: Create customer record in Azure Table Storage via Azure Function
                 var customer = new Customer
                 {
                     PartitionKey = "Customer",
@@ -138,47 +145,140 @@ namespace ST10439147_CLDV6212_POE.Services
                     PhoneNumber = model.PhoneNumber ?? string.Empty
                 };
 
-                await _tableService.InsertCustomerAsync(customer);
-                _logger.LogInformation("Customer created in Table Storage: {CustomerId}", customer.RowKey);
+                var (customerSuccess, customerId, customerMessage) = await CreateCustomerViaAzureFunctionAsync(customer);
 
-                // Create user record in SQL Database
-                string insertQuery = @"
-                    INSERT INTO Users (Email, PasswordHash, Role, CustomerId, IsActive, CreatedDate)
-                    VALUES (@Email, @PasswordHash, @Role, @CustomerId, @IsActive, @CreatedDate);
-                    SELECT CAST(SCOPE_IDENTITY() as int);";
-
-                var parameters = new[]
+                if (!customerSuccess)
                 {
-                    new SqlParameter("@Email", model.Email),
-                    new SqlParameter("@PasswordHash", HashPassword(model.Password)),
-                    new SqlParameter("@Role", "Customer"),
-                    new SqlParameter("@CustomerId", customer.RowKey),
-                    new SqlParameter("@IsActive", true),
-                    new SqlParameter("@CreatedDate", DateTime.UtcNow)
-                };
+                    _logger.LogError("Failed to create customer in Table Storage: {Message}", customerMessage);
+                    return (false, "Failed to create customer profile. Please try again.", null);
+                }
 
-                var userId = await _dbHelper.ExecuteScalarAsync(insertQuery, parameters);
+                _logger.LogInformation("Customer created in Table Storage: {CustomerId}", customerId);
 
-                var user = new User
+                // Step 2: Create user record in SQL Database with link to customer
+                try
                 {
-                    UserId = Convert.ToInt32(userId),
-                    Email = model.Email,
-                    PasswordHash = HashPassword(model.Password),
-                    Role = "Customer",
-                    CustomerId = customer.RowKey,
-                    IsActive = true,
-                    CreatedDate = DateTime.UtcNow
-                };
+                    string insertQuery = @"
+                        INSERT INTO Users (Email, PasswordHash, Role, CustomerId, IsActive, CreatedDate)
+                        VALUES (@Email, @PasswordHash, @Role, @CustomerId, @IsActive, @CreatedDate);
+                        SELECT CAST(SCOPE_IDENTITY() as int);";
 
-                _logger.LogInformation("User registered successfully: {Email}, CustomerId: {CustomerId}",
-                    user.Email, user.CustomerId);
+                    var parameters = new[]
+                    {
+                        new SqlParameter("@Email", model.Email),
+                        new SqlParameter("@PasswordHash", HashPassword(model.Password)),
+                        new SqlParameter("@Role", "Customer"),
+                        new SqlParameter("@CustomerId", customerId),
+                        new SqlParameter("@IsActive", true),
+                        new SqlParameter("@CreatedDate", DateTime.UtcNow)
+                    };
 
-                return (true, "Registration successful", user);
+                    var userId = await _dbHelper.ExecuteScalarAsync(insertQuery, parameters);
+
+                    var user = new User
+                    {
+                        UserId = Convert.ToInt32(userId),
+                        Email = model.Email,
+                        PasswordHash = HashPassword(model.Password),
+                        Role = "Customer",
+                        CustomerId = customerId,
+                        IsActive = true,
+                        CreatedDate = DateTime.UtcNow
+                    };
+
+                    _logger.LogInformation("User registered successfully: {Email}, CustomerId: {CustomerId}",
+                        user.Email, user.CustomerId);
+
+                    return (true, "Registration successful", user);
+                }
+                catch (Exception sqlEx)
+                {
+                    // If SQL insert fails, attempt to clean up the customer record
+                    _logger.LogError(sqlEx, "SQL Database error during registration, attempting cleanup");
+
+                    try
+                    {
+                        await DeleteCustomerViaAzureFunctionAsync("Customer", customerId);
+                        _logger.LogInformation("Cleaned up customer record after SQL failure");
+                    }
+                    catch (Exception cleanupEx)
+                    {
+                        _logger.LogError(cleanupEx, "Failed to cleanup customer record");
+                    }
+
+                    return (false, "An error occurred during registration. Please try again.", null);
+                }
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error during registration for email: {Email}", model.Email);
                 return (false, "An error occurred during registration. Please try again.", null);
+            }
+        }
+
+        //--------------------------------------------------------------------------------------------------------------------------------------------------------------//
+        /// <summary>
+        /// Create customer via Azure Function
+        /// </summary>
+        private async Task<(bool success, string customerId, string message)> CreateCustomerViaAzureFunctionAsync(Customer customer)
+        {
+            try
+            {
+                _logger.LogInformation("Creating customer via Azure Function: {Email}", customer.Email);
+
+                var request = new HttpRequestMessage(HttpMethod.Post, $"{_functionBaseUrl}/customers");
+                request.Headers.Add("x-functions-key", _functionKey);
+
+                var jsonContent = JsonSerializer.Serialize(customer);
+                request.Content = new StringContent(jsonContent, Encoding.UTF8, "application/json");
+
+                var response = await _httpClient.SendAsync(request);
+
+                if (response.IsSuccessStatusCode)
+                {
+                    var content = await response.Content.ReadAsStringAsync();
+                    var createdCustomer = JsonSerializer.Deserialize<Customer>(content, new JsonSerializerOptions
+                    {
+                        PropertyNameCaseInsensitive = true
+                    });
+
+                    _logger.LogInformation("Customer created successfully via Azure Function: {CustomerId}", createdCustomer?.RowKey);
+                    return (true, createdCustomer?.RowKey ?? customer.RowKey, "Customer created successfully");
+                }
+
+                var errorContent = await response.Content.ReadAsStringAsync();
+                _logger.LogError("Error creating customer via Azure Function: {StatusCode} - {Error}",
+                    response.StatusCode, errorContent);
+                return (false, string.Empty, $"Failed to create customer: {errorContent}");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Exception creating customer via Azure Function");
+                return (false, string.Empty, $"Error creating customer: {ex.Message}");
+            }
+        }
+
+        //--------------------------------------------------------------------------------------------------------------------------------------------------------------//
+        /// <summary>
+        /// Delete customer via Azure Function (cleanup on registration failure)
+        /// </summary>
+        private async Task DeleteCustomerViaAzureFunctionAsync(string partitionKey, string rowKey)
+        {
+            try
+            {
+                _logger.LogInformation("Deleting customer via Azure Function: {PartitionKey}/{RowKey}",
+                    partitionKey, rowKey);
+
+                var request = new HttpRequestMessage(HttpMethod.Delete,
+                    $"{_functionBaseUrl}/customers/{partitionKey}/{rowKey}");
+                request.Headers.Add("x-functions-key", _functionKey);
+
+                await _httpClient.SendAsync(request);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error deleting customer via Azure Function");
+                throw;
             }
         }
 
