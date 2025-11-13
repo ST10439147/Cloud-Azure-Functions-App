@@ -10,9 +10,10 @@
 // IIEVC School of Computer Science Youtube channel for Azure services setup and use https://www.youtube.com/@VCSOCS
 // AzureApp project done in class with lecturer
 
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
-using ST10439147_CLDV6212_POE.Models;
 using Microsoft.Extensions.Logging;
+using ST10439147_CLDV6212_POE.Models;
 using System.Net.Http.Headers;
 using System.Text.Json;
 
@@ -514,6 +515,7 @@ namespace ST10439147_CLDV6212_POE.Controllers
         /// </summary>
         /// <param name="id">Product ID (RowKey)</param>
         /// <returns>Edit view with product data populated</returns>
+        [Authorize(Roles = "Admin")]
         [HttpGet]
         public async Task<IActionResult> Edit(string id)
         {
@@ -576,6 +578,7 @@ namespace ST10439147_CLDV6212_POE.Controllers
         /// <param name="product">Updated product data from form</param>
         /// <param name="imageFile">Optional new image file</param>
         /// <returns>Redirects to Index on success, or returns to Edit view with errors</returns>
+        [Authorize(Roles = "Admin")]
         [HttpPost]
         [ValidateAntiForgeryToken]
         public async Task<IActionResult> Edit(string id, Product product, IFormFile? imageFile)
@@ -706,6 +709,7 @@ namespace ST10439147_CLDV6212_POE.Controllers
         /// </summary>
         /// <param name="id">Product ID (RowKey)</param>
         /// <returns>Delete confirmation view with product details</returns>
+        [Authorize(Roles = "Admin")]
         [HttpGet]
         public async Task<IActionResult> Delete(string id)
         {
@@ -766,6 +770,7 @@ namespace ST10439147_CLDV6212_POE.Controllers
         /// </summary>
         /// <param name="id">Product ID (RowKey)</param>
         /// <returns>Redirects to Index with success/error message</returns>
+        [Authorize(Roles = "Admin")]
         [HttpPost, ActionName("Delete")]
         [ValidateAntiForgeryToken]
         public async Task<IActionResult> DeleteConfirmed(string id)

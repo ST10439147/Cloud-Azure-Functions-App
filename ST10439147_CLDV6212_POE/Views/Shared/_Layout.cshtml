@@ -67,7 +67,7 @@
                                     </a>
                                 </li>
                                 <li class="nav-item">
-                                    <a class="nav-link text-dark" asp-area="" asp-controller="Account" asp-action="MyOrders">
+                                    <a class="nav-link text-dark" asp-area="" asp-controller="Order" asp-action="MyOrders">
                                         <i class="fas fa-shopping-cart me-1"></i>My Cart
                                     </a>
                                 </li>
@@ -99,7 +99,7 @@
                                     @if (User.IsInRole("Customer"))
                                     {
                                         <li>
-                                            <a class="dropdown-item" asp-controller="Account" asp-action="MyOrders">
+                                            <a class="dropdown-item" asp-controller="Order" asp-action="MyOrders">
                                                 <i class="fas fa-shopping-cart me-2"></i>My Orders
                                             </a>
                                         </li>

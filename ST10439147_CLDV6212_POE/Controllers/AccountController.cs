@@ -219,48 +219,6 @@ namespace ST10439147_CLDV6212_POE.Controllers
             ViewBag.Customer = customer;
             return View(user);
         }
-
-        //--------------------------------------------------------------------------------------------------------------------------------------------------------------//
-        // GET: Account/MyOrders - View customer's orders
-        [Authorize(Roles = "Customer")]
-        [HttpGet]
-        public async Task<IActionResult> MyOrders()
-        {
-            var customerIdClaim = User.FindFirst("CustomerId")?.Value;
-
-            if (string.IsNullOrEmpty(customerIdClaim))
-            {
-                TempData["Error"] = "Customer information not found.";
-                return RedirectToAction("Index", "Home");
-            }
-
-            try
-            {
-                // Get all orders and filter by customer ID
-                var allOrders = await _tableService.GetAllOrdersAsync();
-                var customerOrders = allOrders.Where(o => o.CustomerId == customerIdClaim).ToList();
-
-                // Load product and customer details for each order
-                foreach (var order in customerOrders)
-                {
-                    try
-                    {
-                        var product = await _tableService.GetProductByIdAsync("Product", order.ProductId);
-                        ViewBag.Products = ViewBag.Products ?? new Dictionary<string, Product>();
-                        ((Dictionary<string, Product>)ViewBag.Products)[order.ProductId] = product;
-                    }
-                    catch { }
-                }
-
-                return View(customerOrders);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error loading orders for customer {CustomerId}", customerIdClaim);
-                TempData["Error"] = "Unable to load your orders.";
-                return RedirectToAction("Index", "Home");
-            }
-        }
     }
 }
 //-----------------------------------------------------DDDDooooo END OF FILE oooooDDDD-----------------------------------------------------//

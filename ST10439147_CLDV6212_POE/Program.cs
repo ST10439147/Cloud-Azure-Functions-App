@@ -22,6 +22,15 @@ builder.Services.AddScoped<BlobService>();
 builder.Services.AddScoped<TableService>();
 builder.Services.AddScoped<QueueService>();
 
+builder.Services.AddDistributedMemoryCache();
+builder.Services.AddSession(options =>
+{
+    options.IdleTimeout = TimeSpan.FromMinutes(30); // Session timeout
+    options.Cookie.HttpOnly = true;
+    options.Cookie.IsEssential = true; // Make the session cookie essential
+    options.Cookie.Name = ".ABCRetail.Session";
+});
+
 // Register Authentication Service (using ADO.NET)
 builder.Services.AddScoped<AuthenticationService>();
 
@@ -62,6 +71,7 @@ if (!app.Environment.IsDevelopment())
     app.UseExceptionHandler("/Home/Error");
     app.UseHsts();
 }
+app.UseSession();
 
 app.UseHttpsRedirection();
 app.UseStaticFiles();

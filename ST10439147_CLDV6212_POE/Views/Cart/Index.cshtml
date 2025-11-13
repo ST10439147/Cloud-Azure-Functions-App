@@ -1,1 +1,219 @@
-﻿
+﻿@* StudentNumber: ST10439147 *@
+@* StudentName: Dillon Rinkwest *@
+@* CourseCode: CLDV6212 *@
+@* POE Part: 3 - Shopping Cart View *@
+
+@model ST10439147_CLDV6212_POE.Models.Cart
+
+@{
+    ViewData["Title"] = "Shopping Cart";
+}
+
+<div class="container mt-4">
+    <div class="row">
+        <div class="col-12">
+            <h2 class="mb-4">
+                <i class="bi bi-cart3"></i> Shopping Cart
+            </h2>
+
+            @if (TempData["Success"] != null)
+            {
+                <div class="alert alert-success alert-dismissible fade show">
+                    @TempData["Success"]
+                    <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                </div>
+            }
+
+            @if (TempData["Error"] != null)
+            {
+                <div class="alert alert-danger alert-dismissible fade show">
+                    @TempData["Error"]
+                    <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                </div>
+            }
+
+            @if (!Model.Items.Any())
+            {
+                <div class="alert alert-info">
+                    <i class="bi bi-info-circle"></i> Your cart is empty.
+                    <a asp-controller="Product" asp-action="Index" class="alert-link">Continue Shopping</a>
+                </div>
+            }
+            else
+            {
+                <div class="card shadow-sm">
+                    <div class="card-body">
+                        <div class="table-responsive">
+                            <table class="table table-hover">
+                                <thead class="table-light">
+                                    <tr>
+                                        <th>Product</th>
+                                        <th class="text-center">Price</th>
+                                        <th class="text-center">Quantity</th>
+                                        <th class="text-end">Subtotal</th>
+                                        <th class="text-center">Action</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (var item in Model.Items)
+                                    {
+                                        <tr data-product-id="@item.ProductId">
+                                            <td>
+                                                <div class="d-flex align-items-center">
+                                                    @if (!string.IsNullOrEmpty(item.ImageUrl))
+                                                    {
+                                                        <img src="@item.ImageUrl" alt="@item.ProductName"
+                                                             class="me-3" style="width: 60px; height: 60px; object-fit: cover;">
+                                                    }
+                                                    <div>
+                                                        <strong>@item.ProductName</strong>
+                                                    </div>
+                                                </div>
+                                            </td>
+                                            <td class="text-center align-middle">
+                                                @item.Price.ToString("C")
+                                            </td>
+                                            <td class="text-center align-middle">
+                                                <div class="input-group input-group-sm" style="max-width: 150px; margin: 0 auto;">
+                                                    <button class="btn btn-outline-secondary btn-decrease" type="button"
+                                                            onclick="updateQuantity('@item.ProductId', @(item.Quantity - 1))">
+                                                        <i class="bi bi-dash"></i>
+                                                    </button>
+                                                    <input type="number" class="form-control text-center quantity-input"
+                                                           value="@item.Quantity" min="1"
+                                                           onchange="updateQuantity('@item.ProductId', this.value)">
+                                                    <button class="btn btn-outline-secondary btn-increase" type="button"
+                                                            onclick="updateQuantity('@item.ProductId', @(item.Quantity + 1))">
+                                                        <i class="bi bi-plus"></i>
+                                                    </button>
+                                                </div>
+                                            </td>
+                                            <td class="text-end align-middle">
+                                                <strong class="item-subtotal">@item.GetSubtotal().ToString("C")</strong>
+                                            </td>
+                                            <td class="text-center align-middle">
+                                                <form asp-action="RemoveItem" method="post" class="d-inline">
+                                                    @Html.AntiForgeryToken()
+                                                    <input type="hidden" name="productId" value="@item.ProductId" />
+                                                    <button type="submit" class="btn btn-danger btn-sm"
+                                                            onclick="return confirm('Remove this item from cart?');">
+                                                        <i class="bi bi-trash"></i>
+                                                    </button>
+                                                </form>
+                                            </td>
+                                        </tr>
+                                    }
+                                </tbody>
+                                <tfoot class="table-light">
+                                    <tr>
+                                        <td colspan="3" class="text-end"><strong>Total:</strong></td>
+                                        <td class="text-end">
+                                            <h5 class="mb-0" id="cart-total">@Model.GetTotal().ToString("C")</h5>
+                                        </td>
+                                        <td></td>
+                                    </tr>
+                                </tfoot>
+                            </table>
+                        </div>
+
+                        <div class="row mt-4">
+                            <div class="col-md-6">
+                                <a asp-controller="Product" asp-action="Index" class="btn btn-outline-secondary">
+                                    <i class="bi bi-arrow-left"></i> Continue Shopping
+                                </a>
+
+                                <form asp-action="Clear" method="post" class="d-inline ms-2">
+                                    @Html.AntiForgeryToken()
+                                    <button type="submit" class="btn btn-outline-danger"
+                                            onclick="return confirm('Are you sure you want to clear your cart?');">
+                                        <i class="bi bi-x-circle"></i> Clear Cart
+                                    </button>
+                                </form>
+                            </div>
+                            <div class="col-md-6 text-end">
+                                <a asp-action="Checkout" class="btn btn-primary btn-lg">
+                                    <i class="bi bi-credit-card"></i> Proceed to Checkout
+                                </a>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            }
+        </div>
+    </div>
+</div>
+
+@section Scripts {
+    <script>
+        function updateQuantity(productId, quantity) {
+            quantity = parseInt(quantity);
+
+            if (isNaN(quantity) || quantity < 0) {
+                alert('Please enter a valid quantity');
+                return;
+            }
+
+            // Show loading state
+            const row = document.querySelector(`tr[data-product-id="${productId}"]`);
+            const originalContent = row.innerHTML;
+
+            // Create form data
+            const formData = new FormData();
+            formData.append('productId', productId);
+            formData.append('quantity', quantity);
+
+            // Get anti-forgery token
+            const token = document.querySelector('input[name="__RequestVerificationToken"]').value;
+
+            fetch('@Url.Action("UpdateQuantity", "Cart")', {
+                method: 'POST',
+                headers: {
+                    'RequestVerificationToken': token
+                },
+                body: formData
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    if (quantity === 0) {
+                        // Remove row if quantity is 0
+                        row.remove();
+
+                        // Check if cart is empty
+                        const tbody = document.querySelector('tbody');
+                        if (tbody.children.length === 0) {
+                            location.reload();
+                        }
+                    } else {
+                        // Update subtotal
+                        row.querySelector('.item-subtotal').textContent =
+                            new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' })
+                                .format(data.itemSubtotal);
+                    }
+
+                    // Update cart total
+                    document.getElementById('cart-total').textContent =
+                        new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' })
+                            .format(data.cartTotal);
+
+                    // Update cart count in navbar (if exists)
+                    const cartBadge = document.querySelector('.cart-count');
+                    if (cartBadge) {
+                        cartBadge.textContent = data.cartCount;
+                    }
+                } else {
+                    alert(data.message || 'Failed to update cart');
+                    // Restore original content
+                    row.innerHTML = originalContent;
+                }
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                alert('An error occurred while updating the cart');
+                // Restore original content
+                row.innerHTML = originalContent;
+            });
+        }
+    </script>
+}
+//-----------------------------------------------------DDDDooooo END OF FILE oooooDDDD-----------------------------------------------------//

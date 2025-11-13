@@ -1,7 +1,7 @@
 ﻿// StudentNumber: ST10439147
 // StudentName: Dillon Rinkwest
 // CourseCode: CLDV6212
-// POE Part: 3 - Admin Controller
+// POE Part: 3 - Admin Order Management
 
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -11,151 +11,52 @@ using ST10439147_CLDV6212_POE.Services;
 namespace ST10439147_CLDV6212_POE.Controllers
 {
     /// <summary>
-    /// Admin-only controller for managing the system
+    /// Admin controller for managing orders and updating order status
     /// </summary>
     [Authorize(Roles = "Admin")]
     public class AdminController : Controller
     {
-        private readonly AuthenticationService _authService;
         private readonly TableService _tableService;
         private readonly ILogger<AdminController> _logger;
 
-        public AdminController(
-            AuthenticationService authService,
-            TableService tableService,
-            ILogger<AdminController> logger)
+        public AdminController(TableService tableService, ILogger<AdminController> logger)
         {
-            _authService = authService;
-            _tableService = tableService;
-            _logger = logger;
+            _tableService = tableService ?? throw new ArgumentNullException(nameof(tableService));
+            _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         }
 
         //--------------------------------------------------------------------------------------------------------------------------------------------------------------//
-        // GET: Admin/Index - Dashboard
+        // GET: Admin/Index - Admin Dashboard
         [HttpGet]
         public async Task<IActionResult> Index()
         {
             try
             {
-                // Get statistics
-                var users = await _authService.GetAllUsersAsync();
+                // Get statistics for dashboard
                 var orders = await _tableService.GetAllOrdersAsync();
                 var products = await _tableService.GetAllProductsAsync();
                 var customers = await _tableService.GetAllCustomersAsync();
 
-                ViewBag.TotalUsers = users.Count;
-                ViewBag.TotalCustomers = users.Count(u => u.Role == "Customer");
                 ViewBag.TotalOrders = orders.Count;
                 ViewBag.PendingOrders = orders.Count(o => o.Status == "Pending");
+                ViewBag.ProcessedOrders = orders.Count(o => o.Status == "PROCESSED");
                 ViewBag.TotalProducts = products.Count;
-                ViewBag.LowStockProducts = products.Count(p => p.StockQuantity < 10);
-
-                // Recent orders
-                ViewBag.RecentOrders = orders.OrderByDescending(o => o.OrderDate).Take(10).ToList();
+                ViewBag.TotalCustomers = customers.Count;
 
                 return View();
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error loading admin dashboard");
-                ViewBag.Error = "Unable to load dashboard data.";
+                TempData["Error"] = "Unable to load dashboard.";
                 return View();
-            }
-        }
-
-        //--------------------------------------------------------------------------------------------------------------------------------------------------------------//
-        // GET: Admin/Users - Manage users
-        [HttpGet]
-        public async Task<IActionResult> Users()
-        {
-            try
-            {
-                var users = await _authService.GetAllUsersAsync();
-
-                // Load customer details for each user
-                foreach (var user in users.Where(u => !string.IsNullOrEmpty(u.CustomerId)))
-                {
-                    try
-                    {
-                        var customer = await _tableService.GetCustomerByIdAsync("Customer", user.CustomerId!);
-                        ViewBag.Customers = ViewBag.Customers ?? new Dictionary<string, Customer>();
-                        ((Dictionary<string, Customer>)ViewBag.Customers)[user.CustomerId!] = customer;
-                    }
-                    catch { }
-                }
-
-                return View(users);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error loading users");
-                ViewBag.Error = "Unable to load users.";
-                return View(new List<User>());
-            }
-        }
-
-        //--------------------------------------------------------------------------------------------------------------------------------------------------------------//
-        // POST: Admin/DeactivateUser
-        [HttpPost]
-        [ValidateAntiForgeryToken]
-        public async Task<IActionResult> DeactivateUser(int userId)
-        {
-            try
-            {
-                var success = await _authService.DeactivateUserAsync(userId);
-
-                if (success)
-                {
-                    TempData["Success"] = "User deactivated successfully.";
-                }
-                else
-                {
-                    TempData["Error"] = "User not found.";
-                }
-
-                return RedirectToAction(nameof(Users));
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error deactivating user: {UserId}", userId);
-                TempData["Error"] = "Unable to deactivate user.";
-                return RedirectToAction(nameof(Users));
-            }
-        }
-
-        //--------------------------------------------------------------------------------------------------------------------------------------------------------------//
-        // POST: Admin/ActivateUser
-        [HttpPost]
-        [ValidateAntiForgeryToken]
-        public async Task<IActionResult> ActivateUser(int userId)
-        {
-            try
-            {
-                var success = await _authService.ActivateUserAsync(userId);
-
-                if (success)
-                {
-                    TempData["Success"] = "User activated successfully.";
-                }
-                else
-                {
-                    TempData["Error"] = "User not found.";
-                }
-
-                return RedirectToAction(nameof(Users));
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error activating user: {UserId}", userId);
-                TempData["Error"] = "Unable to activate user.";
-                return RedirectToAction(nameof(Users));
             }
         }
 
         //--------------------------------------------------------------------------------------------------------------------------------------------------------------//
         // GET: Admin/Orders - View all orders
         [HttpGet]
-        public async Task<IActionResult> Orders(string? status = null)
+        public async Task<IActionResult> Orders(string status = null)
         {
             try
             {
@@ -167,41 +68,52 @@ namespace ST10439147_CLDV6212_POE.Controllers
                     orders = orders.Where(o => o.Status == status).ToList();
                 }
 
-                // Load related data
+                // Load customer and product details for each order
                 foreach (var order in orders)
                 {
                     try
                     {
                         var customer = await _tableService.GetCustomerByIdAsync("Customer", order.CustomerId);
-                        ViewBag.Customers = ViewBag.Customers ?? new Dictionary<string, Customer>();
-                        ((Dictionary<string, Customer>)ViewBag.Customers)[order.CustomerId] = customer;
-
                         var product = await _tableService.GetProductByIdAsync("Product", order.ProductId);
+
+                        ViewBag.Customers = ViewBag.Customers ?? new Dictionary<string, Customer>();
                         ViewBag.Products = ViewBag.Products ?? new Dictionary<string, Product>();
+
+                        ((Dictionary<string, Customer>)ViewBag.Customers)[order.CustomerId] = customer;
                         ((Dictionary<string, Product>)ViewBag.Products)[order.ProductId] = product;
                     }
-                    catch { }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "Could not load related data for order {OrderId}", order.RowKey);
+                    }
                 }
 
-                ViewBag.CurrentFilter = status;
+                ViewBag.StatusFilter = status;
                 return View(orders);
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error loading orders");
-                ViewBag.Error = "Unable to load orders.";
+                TempData["Error"] = "Unable to load orders.";
                 return View(new List<Order>());
             }
         }
 
         //--------------------------------------------------------------------------------------------------------------------------------------------------------------//
-        // POST: Admin/UpdateOrderStatus
+        // POST: Admin/UpdateOrderStatus - Update order status to PROCESSED
         [HttpPost]
         [ValidateAntiForgeryToken]
         public async Task<IActionResult> UpdateOrderStatus(string partitionKey, string rowKey, string status)
         {
+            if (string.IsNullOrEmpty(partitionKey) || string.IsNullOrEmpty(rowKey) || string.IsNullOrEmpty(status))
+            {
+                TempData["Error"] = "Invalid order information.";
+                return RedirectToAction(nameof(Orders));
+            }
+
             try
             {
+                // Get the order
                 var order = await _tableService.GetOrderByIdAsync(partitionKey, rowKey);
 
                 if (order == null)
@@ -210,25 +122,46 @@ namespace ST10439147_CLDV6212_POE.Controllers
                     return RedirectToAction(nameof(Orders));
                 }
 
+                // Update status
+                var oldStatus = order.Status;
                 order.Status = status;
+
                 await _tableService.UpdateOrderAsync(order);
 
-                TempData["Success"] = $"Order status updated to '{status}'.";
+                _logger.LogInformation("Order {OrderId} status updated from {OldStatus} to {NewStatus} by admin",
+                    order.RowKey, oldStatus, status);
+
+                TempData["Success"] = $"Order status updated to '{status}' successfully.";
                 return RedirectToAction(nameof(Orders));
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error updating order status");
+                _logger.LogError(ex, "Error updating order status for {PartitionKey}/{RowKey}",
+                    partitionKey, rowKey);
                 TempData["Error"] = "Unable to update order status.";
                 return RedirectToAction(nameof(Orders));
             }
         }
 
         //--------------------------------------------------------------------------------------------------------------------------------------------------------------//
-        // GET: Admin/OrderDetails
+        // POST: Admin/ProcessOrder - Quick action to mark order as PROCESSED
+        [HttpPost]
+        [ValidateAntiForgeryToken]
+        public async Task<IActionResult> ProcessOrder(string partitionKey, string rowKey)
+        {
+            return await UpdateOrderStatus(partitionKey, rowKey, "PROCESSED");
+        }
+
+        //--------------------------------------------------------------------------------------------------------------------------------------------------------------//
+        // GET: Admin/OrderDetails - View detailed order information
         [HttpGet]
         public async Task<IActionResult> OrderDetails(string partitionKey, string rowKey)
         {
+            if (string.IsNullOrEmpty(partitionKey) || string.IsNullOrEmpty(rowKey))
+            {
+                return NotFound();
+            }
+
             try
             {
                 var order = await _tableService.GetOrderByIdAsync(partitionKey, rowKey);
@@ -253,33 +186,6 @@ namespace ST10439147_CLDV6212_POE.Controllers
                 TempData["Error"] = "Unable to load order details.";
                 return RedirectToAction(nameof(Orders));
             }
-        }
-
-        //--------------------------------------------------------------------------------------------------------------------------------------------------------------//
-        // GET: Admin/Products - Product management
-        [HttpGet]
-        public IActionResult Products()
-        {
-            // Redirect to Product controller (admin can manage products there)
-            return RedirectToAction("Index", "Product");
-        }
-
-        //--------------------------------------------------------------------------------------------------------------------------------------------------------------//
-        // GET: Admin/Customers - Customer management
-        [HttpGet]
-        public IActionResult Customers()
-        {
-            // Redirect to Customer controller (admin can manage customers there)
-            return RedirectToAction("Index", "Customer");
-        }
-
-        //--------------------------------------------------------------------------------------------------------------------------------------------------------------//
-        // GET: Admin/Files - File management
-        [HttpGet]
-        public IActionResult Files()
-        {
-            // Redirect to FileUpload controller (admin can manage files there)
-            return RedirectToAction("Index", "FileUpload");
         }
     }
 }
