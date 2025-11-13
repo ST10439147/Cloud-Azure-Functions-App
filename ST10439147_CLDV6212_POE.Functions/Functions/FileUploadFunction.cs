@@ -46,34 +46,61 @@ namespace ST10439147_CLDV6212_POE.Functions
         /// <returns>List of file names in the file share or error message</returns>
         [Function("GetFiles")]
         public async Task<IActionResult> GetFiles(
-            [HttpTrigger(AuthorizationLevel.Function, "get", Route = "files")] HttpRequest req)
+    [HttpTrigger(AuthorizationLevel.Function, "get", Route = "files")] HttpRequest req)
         {
             try
             {
-                _logger.LogInformation("Retrieving all files from Azure File Share");
+                _logger.LogInformation("Retrieving all files with metadata from Azure File Share");
 
-                // Get a client for the specific file share
                 var shareClient = _shareServiceClient.GetShareClient(DefaultShareName);
 
-                // Check if the file share exists before attempting to list files
                 if (!await shareClient.ExistsAsync())
                 {
                     _logger.LogWarning($"Share '{DefaultShareName}' does not exist");
-                    // Return empty list if share doesn't exist (rather than error)
-                    return new OkObjectResult(new List<string>());
+                    return new OkObjectResult(new List<object>());
                 }
 
-                // Get the root directory client to access files
                 var directoryClient = shareClient.GetRootDirectoryClient();
-                var files = new List<string>();
+                var files = new List<object>();
 
-                // Iterate through all items in the root directory
                 await foreach (var item in directoryClient.GetFilesAndDirectoriesAsync())
                 {
-                    // Only add files to the list (exclude directories)
                     if (!item.IsDirectory)
                     {
-                        files.Add(item.Name);
+                        try
+                        {
+                            var fileClient = directoryClient.GetFileClient(item.Name);
+                            var properties = await fileClient.GetPropertiesAsync();
+
+                            // Extract metadata
+                            var uploadedBy = properties.Value.Metadata.ContainsKey("UploadedBy")
+                                ? properties.Value.Metadata["UploadedBy"]
+                                : "Unknown";
+
+                            var uploadedOn = properties.Value.Metadata.ContainsKey("UploadedOn")
+                                ? DateTime.Parse(properties.Value.Metadata["UploadedOn"])
+                                : properties.Value.LastModified.DateTime;
+
+                            files.Add(new
+                            {
+                                fileName = item.Name,
+                                fileSize = item.FileSize ?? 0,
+                                uploadedBy = uploadedBy,
+                                uploadedOn = uploadedOn
+                            });
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger.LogWarning(ex, $"Could not retrieve metadata for file: {item.Name}");
+                            // Add file without metadata
+                            files.Add(new
+                            {
+                                fileName = item.Name,
+                                fileSize = item.FileSize ?? 0,
+                                uploadedBy = "Unknown",
+                                uploadedOn = DateTime.UtcNow
+                            });
+                        }
                     }
                 }
 
@@ -82,7 +109,6 @@ namespace ST10439147_CLDV6212_POE.Functions
             }
             catch (Exception ex)
             {
-                // Log the error and return a 500 Internal Server Error response
                 _logger.LogError(ex, "Error retrieving files from file share");
                 return new ObjectResult(new { error = "Error retrieving files", message = ex.Message })
                 {
@@ -98,6 +124,7 @@ namespace ST10439147_CLDV6212_POE.Functions
         /// </summary>
         /// <param name="req">HTTP request containing the file as form data</param>
         /// <returns>Upload success response with file details or error message</returns>
+        // Enhanced UploadFile function with uploader tracking
         [Function("UploadFile")]
         public async Task<IActionResult> UploadFile(
             [HttpTrigger(AuthorizationLevel.Function, "post", Route = "files/upload")] HttpRequest req)
@@ -106,7 +133,6 @@ namespace ST10439147_CLDV6212_POE.Functions
             {
                 _logger.LogInformation("Processing file upload request");
 
-                // Validate that the request contains form data (required for file uploads)
                 if (!req.HasFormContentType)
                 {
                     return new BadRequestObjectResult(new
@@ -116,12 +142,16 @@ namespace ST10439147_CLDV6212_POE.Functions
                     });
                 }
 
-                // Read the form data from the request
                 var form = await req.ReadFormAsync();
-                // Get the first file from the form (if multiple files, only first is processed)
                 var file = form.Files.FirstOrDefault();
 
-                // Validate that a file was provided and has content
+                // Get uploader email from form data
+                var uploaderEmail = form["uploaderEmail"].ToString();
+                if (string.IsNullOrEmpty(uploaderEmail))
+                {
+                    uploaderEmail = "Unknown";
+                }
+
                 if (file == null || file.Length == 0)
                 {
                     return new BadRequestObjectResult(new
@@ -131,11 +161,9 @@ namespace ST10439147_CLDV6212_POE.Functions
                     });
                 }
 
-                // Define allowed file extensions for security
                 var allowedExtensions = new[] { ".pdf", ".docx", ".txt", ".xlsx" };
                 var fileExtension = Path.GetExtension(file.FileName).ToLower();
 
-                // Validate that the file type is allowed
                 if (!allowedExtensions.Contains(fileExtension))
                 {
                     return new BadRequestObjectResult(new
@@ -145,7 +173,6 @@ namespace ST10439147_CLDV6212_POE.Functions
                     });
                 }
 
-                // Validate file size (max 10MB to prevent excessive storage usage)
                 if (file.Length > 10 * 1024 * 1024)
                 {
                     return new BadRequestObjectResult(new
@@ -155,40 +182,44 @@ namespace ST10439147_CLDV6212_POE.Functions
                     });
                 }
 
-                _logger.LogInformation($"Uploading file: {file.FileName}, Size: {file.Length} bytes");
+                _logger.LogInformation($"Uploading file: {file.FileName}, Size: {file.Length} bytes, Uploader: {uploaderEmail}");
 
-                // Get the file share client and create the share if it doesn't exist
                 var shareClient = _shareServiceClient.GetShareClient(DefaultShareName);
                 await shareClient.CreateIfNotExistsAsync();
 
-                // Get the root directory client for file operations
                 var directoryClient = shareClient.GetRootDirectoryClient();
-
-                // Generate a unique filename to prevent overwriting and conflicts
                 var uniqueFileName = $"{Guid.NewGuid()}_{file.FileName}";
                 var fileClient = directoryClient.GetFileClient(uniqueFileName);
 
-                // Upload the file in two steps: create file entry, then upload content
                 using var stream = file.OpenReadStream();
-                await fileClient.CreateAsync(stream.Length); // Allocate space for the file
-                await fileClient.UploadAsync(stream); // Upload the actual file content
+                await fileClient.CreateAsync(stream.Length);
 
-                _logger.LogInformation($"File uploaded successfully: {uniqueFileName}");
+                // Set file metadata including uploader
+                var metadata = new Dictionary<string, string>
+        {
+            { "UploadedBy", uploaderEmail },
+            { "UploadedOn", DateTime.UtcNow.ToString("o") },
+            { "OriginalFileName", file.FileName }
+        };
 
-                // Return success response with file metadata
+                await fileClient.SetMetadataAsync(metadata);
+                await fileClient.UploadAsync(stream);
+
+                _logger.LogInformation($"File uploaded successfully: {uniqueFileName} by {uploaderEmail}");
+
                 return new OkObjectResult(new
                 {
                     success = true,
                     message = $"File '{file.FileName}' uploaded successfully",
-                    fileName = uniqueFileName, // Server-side unique name
-                    originalFileName = file.FileName, // Original name from client
+                    fileName = uniqueFileName,
+                    originalFileName = file.FileName,
                     fileSize = file.Length,
-                    fileType = fileExtension.TrimStart('.') // Extension without dot
+                    fileType = fileExtension.TrimStart('.'),
+                    uploadedBy = uploaderEmail
                 });
             }
             catch (Exception ex)
             {
-                // Log the error and return a 500 Internal Server Error response
                 _logger.LogError(ex, "Error uploading file to file share");
                 return new ObjectResult(new
                 {

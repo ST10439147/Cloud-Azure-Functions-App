@@ -382,15 +382,13 @@
                                 ✏️ Edit
                             </a>
 
-                            <form asp-action="Delete"
-                                  asp-route-partitionKey="@order.PartitionKey"
-                                  asp-route-rowKey="@order.RowKey"
-                                  method="get"
-                                  style="margin: 0;">
-                                <button type="submit" class="btn-action btn-delete" style="width: 100%;">
-                                    🗑️ Delete
-                                </button>
-                            </form>
+                            <a asp-action="Delete"
+                               asp-route-partitionKey="@order.PartitionKey"
+                               asp-route-rowKey="@order.RowKey"
+                               class="btn-action btn-delete"
+                               style="text-decoration: none; width: 100%; display: block; text-align: center;">
+                                🗑️ Delete
+                            </a>
                         </div>
                     </div>
                 </div>

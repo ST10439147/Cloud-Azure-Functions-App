@@ -1,0 +1,10 @@
+ADMIN
+email: admin@abcretail.com
+password: Admin123!
+
+CUSTOMER
+email: mic@joe.com
+password: Cust123@
+
+email: dylan@gmail.com
+password: Customer123!
