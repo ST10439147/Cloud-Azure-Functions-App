@@ -83,9 +83,9 @@ namespace ST10439147_CLDV6212_POE.Controllers
         }
 
         /// <summary>
-        /// GET: Customer/Create - For Admin to create customers manually
+        /// GET: Customer/Create - Customers can create their own profile
         /// </summary>
-        [Authorize(Roles = "Admin")]
+
         [HttpGet]
         public IActionResult Create()
         {
@@ -94,9 +94,9 @@ namespace ST10439147_CLDV6212_POE.Controllers
         }
 
         /// <summary>
-        /// POST: Customer/Create - For Admin to create customers manually
+        /// POST: Customer/Create - Customers can create their own profile
         /// </summary>
-        [Authorize(Roles = "Admin")]
+        [Authorize(Roles = "Customer")]
         [HttpPost]
         [ValidateAntiForgeryToken]
         public async Task<IActionResult> Create(Customer customer)

@@ -1,0 +1,255 @@
+﻿@model ST10439147_CLDV6212_POE.Models.Customer
+@{
+    ViewData["Title"] = "Edit My Profile";
+}
+
+<div class="container mt-4">
+    <!-- Page Header -->
+    <div class="row mb-4">
+        <div class="col-12">
+            <nav aria-label="breadcrumb">
+                <ol class="breadcrumb">
+                    <li class="breadcrumb-item">
+                        <a asp-controller="Home" asp-action="Index">Home</a>
+                    </li>
+                    <li class="breadcrumb-item">
+                        <a asp-controller="Account" asp-action="Profile">My Profile</a>
+                    </li>
+                    <li class="breadcrumb-item active" aria-current="page">Edit Profile</li>
+                </ol>
+            </nav>
+            <h2 class="mb-1">
+                <i class="fas fa-user-edit me-2"></i>Edit My Profile
+            </h2>
+            <p class="text-muted">Update your personal information</p>
+        </div>
+    </div>
+
+    <!-- Error Messages -->
+    @if (TempData["Error"] != null)
+    {
+        <div class="alert alert-danger alert-dismissible fade show" role="alert">
+            <i class="fas fa-exclamation-circle me-2"></i>@TempData["Error"]
+            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+        </div>
+    }
+
+    <div class="row justify-content-center">
+        <div class="col-lg-8">
+            <div class="card shadow-sm">
+                <div class="card-header bg-primary text-white">
+                    <h5 class="mb-0">
+                        <i class="fas fa-address-card me-2"></i>Contact Information
+                    </h5>
+                </div>
+                <div class="card-body">
+                    <form asp-controller="Customer" asp-action="EditMyProfile" method="post">
+                        @Html.AntiForgeryToken()
+
+                        <!-- Hidden Fields -->
+                        <input type="hidden" asp-for="PartitionKey" />
+                        <input type="hidden" asp-for="RowKey" />
+                        <input type="hidden" asp-for="Timestamp" />
+                        <input type="hidden" asp-for="ETag" />
+
+                        <!-- Validation Summary -->
+                        <div asp-validation-summary="ModelOnly" class="alert alert-danger" role="alert"></div>
+
+                        <div class="row g-3">
+                            <!-- First Name -->
+                            <div class="col-md-6">
+                                <label asp-for="FirstName" class="form-label">
+                                    <i class="fas fa-user me-1"></i>First Name
+                                    <span class="text-danger">*</span>
+                                </label>
+                                <input asp-for="FirstName" class="form-control" placeholder="Enter your first name" />
+                                <span asp-validation-for="FirstName" class="text-danger small"></span>
+                            </div>
+
+                            <!-- Last Name -->
+                            <div class="col-md-6">
+                                <label asp-for="LastName" class="form-label">
+                                    <i class="fas fa-user me-1"></i>Last Name
+                                    <span class="text-danger">*</span>
+                                </label>
+                                <input asp-for="LastName" class="form-control" placeholder="Enter your last name" />
+                                <span asp-validation-for="LastName" class="text-danger small"></span>
+                            </div>
+
+                            <!-- Email -->
+                            <div class="col-12">
+                                <label asp-for="Email" class="form-label">
+                                    <i class="fas fa-envelope me-1"></i>Email Address
+                                    <span class="text-danger">*</span>
+                                </label>
+                                <input asp-for="Email" class="form-control" type="email" placeholder="your.email@example.com" />
+                                <span asp-validation-for="Email" class="text-danger small"></span>
+                                <small class="form-text text-muted">
+                                    <i class="fas fa-info-circle me-1"></i>
+                                    Changing your email will affect your login credentials.
+                                </small>
+                            </div>
+
+                            <!-- Phone Number -->
+                            <div class="col-12">
+                                <label asp-for="PhoneNumber" class="form-label">
+                                    <i class="fas fa-phone me-1"></i>Phone Number
+                                    <span class="text-danger">*</span>
+                                </label>
+                                <input asp-for="PhoneNumber" class="form-control" type="tel" placeholder="+27 12 345 6789" />
+                                <span asp-validation-for="PhoneNumber" class="text-danger small"></span>
+                                <small class="form-text text-muted">
+                                    <i class="fas fa-info-circle me-1"></i>
+                                    Include country code for international numbers (e.g., +27 for South Africa).
+                                </small>
+                            </div>
+                        </div>
+
+                        <!-- Information Alert -->
+                        <div class="alert alert-info mt-4 mb-0" role="alert">
+                            <div class="d-flex">
+                                <div class="flex-shrink-0">
+                                    <i class="fas fa-shield-alt fa-2x"></i>
+                                </div>
+                                <div class="flex-grow-1 ms-3">
+                                    <h6 class="alert-heading">Privacy & Security</h6>
+                                    <p class="mb-0 small">
+                                        Your personal information is stored securely and will never be shared with third parties
+                                        without your explicit consent. All data is encrypted and protected.
+                                    </p>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Form Actions -->
+                        <div class="card-footer bg-light border-top-0 mt-4 d-flex justify-content-between align-items-center">
+                            <a asp-controller="Account" asp-action="Profile" class="btn btn-outline-secondary">
+                                <i class="fas fa-times me-1"></i>Cancel
+                            </a>
+                            <button type="submit" class="btn btn-primary">
+                                <i class="fas fa-save me-1"></i>Save Changes
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+
+            <!-- Additional Help Card -->
+            <div class="card shadow-sm mt-4 border-warning">
+                <div class="card-body">
+                    <div class="d-flex align-items-start">
+                        <div class="flex-shrink-0">
+                            <i class="fas fa-question-circle fa-2x text-warning"></i>
+                        </div>
+                        <div class="flex-grow-1 ms-3">
+                            <h6 class="mb-2">Need Help?</h6>
+                            <p class="mb-2 small">
+                                If you're experiencing issues updating your profile or need to make changes that aren't
+                                available here, please contact our support team.
+                            </p>
+                            <a href="mailto:support@example.com" class="btn btn-sm btn-outline-warning">
+                                <i class="fas fa-envelope me-1"></i>Contact Support
+                            </a>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Custom Styles -->
+<style>
+    .card {
+        border: none;
+    }
+
+    .form-label {
+        font-weight: 600;
+        color: #495057;
+        margin-bottom: 0.5rem;
+    }
+
+    .form-control:focus {
+        border-color: #0d6efd;
+        box-shadow: 0 0 0 0.2rem rgba(13, 110, 253, 0.25);
+    }
+
+    .card-footer {
+        padding: 1.5rem;
+        margin-left: -1.25rem;
+        margin-right: -1.25rem;
+        margin-bottom: -1.25rem;
+    }
+
+    .btn {
+        padding: 0.5rem 1.5rem;
+        font-weight: 500;
+        transition: all 0.2s;
+    }
+
+        .btn:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15);
+        }
+
+    .alert {
+        border-left: 4px solid;
+    }
+
+    .alert-info {
+        border-left-color: #0dcaf0;
+    }
+
+    .alert-danger {
+        border-left-color: #dc3545;
+    }
+
+    .breadcrumb {
+        background-color: transparent;
+        padding: 0;
+        margin-bottom: 1rem;
+    }
+
+    input[type="tel"],
+    input[type="email"] {
+        font-family: monospace;
+    }
+
+    .card-footer .btn {
+        width: 100%;
+    }
+
+    }
+</style>
+
+@section Scripts {
+    @{
+        await Html.RenderPartialAsync("_ValidationScriptsPartial");
+    }
+    <script>
+        // Phone number formatting helper
+        document.addEventListener('DOMContentLoaded', function() {
+            const phoneInput = document.querySelector('input[name="PhoneNumber"]');
+
+            if (phoneInput) {
+                phoneInput.addEventListener('blur', function() {
+                    let value = this.value.trim();
+
+                    // Auto-add +27 if it starts with 0 and looks like SA number
+                    if (value.startsWith('0') && value.length >= 10) {
+                        this.value = '+27 ' + value.substring(1);
+                    }
+                });
+            }
+
+            // Form validation feedback
+            const form = document.querySelector('form');
+            form.addEventListener('submit', function() {
+                const submitBtn = form.querySelector('button[type="submit"]');
+                submitBtn.disabled = true;
+                submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>Saving...';
+            });
+        });
+    </script>
+}
