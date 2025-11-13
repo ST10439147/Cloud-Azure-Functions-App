@@ -1,0 +1,1147 @@
+﻿@model ST10439147_CLDV6212_POE.Models.Order
+@{
+    ViewData["Title"] = "Edit Order";
+    var products = ViewBag.Products as List<ST10439147_CLDV6212_POE.Models.Product>;
+    var currentProduct = products?.FirstOrDefault(p => p.RowKey == Model.ProductId);
+}
+
+<link rel="stylesheet" href="~/css/customer-edit.css" />
+
+<div class="edit-order-container">
+    <!-- Breadcrumb Navigation -->
+    <nav class="breadcrumb-nav" aria-label="Breadcrumb">
+        <a asp-action="MyOrders" class="breadcrumb-link">
+            <span>← My Orders</span>
+        </a>
+        <span class="breadcrumb-separator">/</span>
+        <span class="breadcrumb-current">Edit Order</span>
+    </nav>
+
+    <!-- Page Header with Order Status -->
+    <div class="page-header">
+        <div class="header-content">
+            <div class="header-left">
+                <h1 class="page-title">
+                    <span class="title-icon">✏️</span>
+                    <span>Edit Order</span>
+                </h1>
+                <p class="page-subtitle">
+                    <span class="order-id-label">Order ID:</span>
+                    <code class="order-id-value">@Model.RowKey</code>
+                </p>
+            </div>
+            <div class="header-right">
+                <span class="status-badge status-@Model.Status.ToLower()">
+                    @if (Model.Status == "Pending")
+                    {
+                        <span>⏳</span>
+                    }
+                    else if (Model.Status == "Processing")
+                    {
+                        <span>⚙️</span>
+                    }
+                    else if (Model.Status == "Completed")
+                    {
+                        <span>✅</span>
+                    }
+                    else
+                    {
+                        <span>📦</span>
+                    }
+                    <span>@Model.Status</span>
+                </span>
+                <div class="order-date">
+                    <span class="date-icon">📅</span>
+                    <span>@Model.OrderDate.ToString("MMM dd, yyyy")</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Alert Messages -->
+    @if (TempData["Error"] != null)
+    {
+        <div class="alert alert-danger fade-in">
+            <span class="alert-icon">❌</span>
+            <span>@TempData["Error"]</span>
+        </div>
+    }
+
+    @if (!ViewData.ModelState.IsValid)
+    {
+        <div class="alert alert-danger fade-in">
+            <span class="alert-icon">⚠️</span>
+            <div>
+                <strong>Please correct the following errors:</strong>
+                <ul class="error-list">
+                    @foreach (var error in ViewData.ModelState.Values.SelectMany(v => v.Errors))
+                    {
+                        <li>@error.ErrorMessage</li>
+                    }
+                </ul>
+            </div>
+        </div>
+    }
+
+    <form asp-action="Edit" method="post" id="editOrderForm">
+        @Html.AntiForgeryToken()
+        <input type="hidden" asp-for="PartitionKey" />
+        <input type="hidden" asp-for="RowKey" />
+        <input type="hidden" asp-for="CustomerId" />
+        <input type="hidden" asp-for="ProductId" />
+        <input type="hidden" asp-for="OrderDate" />
+        <input type="hidden" asp-for="Status" />
+        <input type="hidden" asp-for="TotalPrice" id="hiddenTotalPrice" />
+
+        <div class="edit-grid">
+            <!-- Left Column: Product Information -->
+            <div class="left-column">
+                <div class="edit-card product-card">
+                    <div class="card-header">
+                        <h3>
+                            <span class="header-icon">📦</span>
+                            <span>Product Details</span>
+                        </h3>
+                    </div>
+                    <div class="card-body">
+                        @if (currentProduct != null)
+                        {
+                            <div class="product-display">
+                                <div class="product-image-wrapper">
+                                    @if (!string.IsNullOrEmpty(currentProduct.ImageUrl))
+                                    {
+                                        <img src="@currentProduct.ImageUrl"
+                                             alt="@currentProduct.Name"
+                                             class="product-image"
+                                             loading="lazy" />
+                                    }
+                                    else
+                                    {
+                                        <div class="product-image-placeholder">
+                                            <span class="placeholder-icon">📷</span>
+                                            <span class="placeholder-text">No Image</span>
+                                        </div>
+                                    }
+                                    <div class="locked-overlay">
+                                        <span class="locked-icon">🔒</span>
+                                    </div>
+                                </div>
+
+                                <div class="product-info">
+                                    <div class="product-header">
+                                        <h3 class="product-name">@currentProduct.Name</h3>
+                                        <span class="locked-badge" title="Product cannot be changed">
+                                            <span>🔒</span>
+                                            <span>Locked</span>
+                                        </span>
+                                    </div>
+
+                                    @if (!string.IsNullOrEmpty(currentProduct.Description))
+                                    {
+                                        <p class="product-description">@currentProduct.Description</p>
+                                    }
+
+                                    <div class="product-meta">
+                                        <div class="meta-item price-item">
+                                            <span class="meta-icon">💰</span>
+                                            <div class="meta-content">
+                                                <span class="meta-value">@currentProduct.Price.ToString("C")</span>
+                                                <span class="meta-label">per unit</span>
+                                            </div>
+                                        </div>
+                                        <div class="meta-item stock-item">
+                                            <span class="meta-icon">📊</span>
+                                            <div class="meta-content">
+                                                <span class="meta-value stock-badge @(currentProduct.StockQuantity < 10 ? "stock-low" : "")">
+                                                    @currentProduct.StockQuantity
+                                                </span>
+                                                <span class="meta-label">in stock</span>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <div class="info-banner">
+                                        <span class="banner-icon">ℹ️</span>
+                                        <span>The product is locked and cannot be changed. Only quantity can be adjusted.</span>
+                                    </div>
+                                </div>
+                            </div>
+                        }
+                        else
+                        {
+                            <div class="alert alert-danger">
+                                <span class="alert-icon">⚠️</span>
+                                <span>Product information not available.</span>
+                            </div>
+                        }
+                    </div>
+                </div>
+            </div>
+
+            <!-- Right Column: Quantity & Price -->
+            <div class="right-column">
+                <!-- Quantity Editor -->
+                <div class="edit-card quantity-card">
+                    <div class="card-header">
+                        <h3>
+                            <span class="header-icon">🔢</span>
+                            <span>Adjust Quantity</span>
+                        </h3>
+                    </div>
+                    <div class="card-body">
+                        <div class="form-group">
+                            <label class="form-label">
+                                <span class="label-text">Quantity</span>
+                                <span class="label-hint">
+                                    (@(currentProduct?.StockQuantity ?? 0) available)
+                                </span>
+                            </label>
+
+                            <div class="quantity-input-wrapper">
+                                <input type="number"
+                                       asp-for="Quantity"
+                                       class="form-control quantity-input-simple"
+                                       id="quantityInput"
+                                       min="1"
+                                       max="@(currentProduct?.StockQuantity ?? 1)"
+                                       required
+                                       aria-label="Order quantity" />
+                            </div>
+
+                            <span asp-validation-for="Quantity" class="validation-message"></span>
+
+                            <!-- Stock Warning -->
+                            @if (currentProduct != null && currentProduct.StockQuantity < 10)
+                            {
+                                <div class="stock-warning">
+                                    <span class="warning-icon">⚠️</span>
+                                    <span>Limited stock available!</span>
+                                </div>
+                            }
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Price Summary -->
+                <div class="edit-card price-card">
+                    <div class="card-header">
+                        <h3>
+                            <span class="header-icon">💵</span>
+                            <span>Order Summary</span>
+                        </h3>
+                    </div>
+                    <div class="card-body">
+                        <div class="price-summary">
+                            <div class="price-row">
+                                <span class="price-label">Unit Price:</span>
+                                <span class="price-value" id="unitPrice">
+                                    @(currentProduct?.Price.ToString("C") ?? "$0.00")
+                                </span>
+                            </div>
+                            <div class="price-row">
+                                <span class="price-label">Quantity:</span>
+                                <span class="price-value quantity-display">
+                                    <span id="displayQuantity">@Model.Quantity</span>
+                                    <span class="quantity-unit">items</span>
+                                </span>
+                            </div>
+                            <div class="price-divider"></div>
+                            <div class="price-row total-row">
+                                <span class="price-label">Total:</span>
+                                <span class="price-value total-price" id="displayTotalPrice">
+                                    @Model.TotalPrice.ToString("C")
+                                </span>
+                            </div>
+
+                            <!-- Savings indicator -->
+                            <div class="savings-info" id="savingsInfo" style="display: none;">
+                                <span class="savings-icon">💡</span>
+                                <span class="savings-text">
+                                    <span id="savingsAmount"></span>
+                                </span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Action Buttons -->
+                <div class="button-group">
+                    <button type="submit" class="btn-primary" id="saveButton">
+                        <span class="btn-icon">💾</span>
+                        <span class="btn-text">Save Changes</span>
+                    </button>
+                    <a asp-action="MyOrders" class="btn-secondary">
+                        <span class="btn-icon">↩️</span>
+                        <span class="btn-text">Cancel</span>
+                    </a>
+                </div>
+
+                <!-- Help Text -->
+                <div class="help-text">
+                    <span class="help-icon">💡</span>
+                    <span>Changes will update your order total and adjust inventory accordingly.</span>
+                </div>
+            </div>
+        </div>
+    </form>
+</div>
+
+<style>
+    .edit-order-container {
+        max-width: 1200px;
+        margin: 0 auto;
+        padding: 20px;
+    }
+
+    /* Breadcrumb */
+    .breadcrumb-nav {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-bottom: 20px;
+        font-size: 0.9rem;
+    }
+
+    .breadcrumb-link {
+        color: #2563eb;
+        text-decoration: none;
+        transition: color 0.2s;
+    }
+
+        .breadcrumb-link:hover {
+            color: #1e40af;
+            text-decoration: underline;
+        }
+
+    .breadcrumb-separator {
+        color: #6b7280;
+    }
+
+    .breadcrumb-current {
+        color: #374151;
+        font-weight: 500;
+    }
+
+    /* Page Header */
+    .page-header {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        border-radius: 12px;
+        padding: 24px;
+        margin-bottom: 24px;
+        color: white;
+        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+    }
+
+    .header-content {
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-start;
+        gap: 20px;
+        flex-wrap: wrap;
+    }
+
+    .header-left {
+        flex: 1;
+        min-width: 250px;
+    }
+
+    .page-title {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        margin: 0 0 8px 0;
+        font-size: 1.75rem;
+        font-weight: 700;
+    }
+
+    .title-icon {
+        font-size: 1.5rem;
+    }
+
+    .page-subtitle {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin: 0;
+        opacity: 0.95;
+        font-size: 0.95rem;
+    }
+
+    .order-id-label {
+        font-weight: 500;
+    }
+
+    .order-id-value {
+        background: rgba(255, 255, 255, 0.2);
+        padding: 4px 12px;
+        border-radius: 6px;
+        font-family: 'Courier New', monospace;
+        font-size: 0.9rem;
+        font-weight: 600;
+    }
+
+    .header-right {
+        display: flex;
+        flex-direction: column;
+        align-items: flex-end;
+        gap: 8px;
+    }
+
+    .status-badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 6px 14px;
+        border-radius: 20px;
+        font-size: 0.85rem;
+        font-weight: 600;
+        background: rgba(255, 255, 255, 0.25);
+        backdrop-filter: blur(10px);
+    }
+
+    .status-pending {
+        background: rgba(251, 191, 36, 0.9);
+        color: #78350f;
+    }
+
+    .status-processing {
+        background: rgba(59, 130, 246, 0.9);
+        color: #1e3a8a;
+    }
+
+    .status-completed {
+        background: rgba(34, 197, 94, 0.9);
+        color: #14532d;
+    }
+
+    .order-date {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        font-size: 0.9rem;
+        opacity: 0.95;
+    }
+
+    .date-icon {
+        font-size: 1rem;
+    }
+
+    /* Alerts */
+    .alert {
+        display: flex;
+        align-items: flex-start;
+        gap: 12px;
+        padding: 16px;
+        border-radius: 8px;
+        margin-bottom: 20px;
+    }
+
+    .alert-danger {
+        background: #fef2f2;
+        border: 1px solid #fecaca;
+        color: #991b1b;
+    }
+
+    .alert-icon {
+        font-size: 1.25rem;
+        flex-shrink: 0;
+    }
+
+    .error-list {
+        margin: 8px 0 0 0;
+        padding-left: 20px;
+    }
+
+        .error-list li {
+            margin: 4px 0;
+        }
+
+    .fade-in {
+        animation: fadeIn 0.3s ease-in;
+    }
+
+
+    /* Grid Layout */
+    .edit-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 24px;
+        margin-bottom: 24px;
+    }
+
+    
+
+    /* Cards */
+    .edit-card {
+        background: white;
+        border-radius: 12px;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+        overflow: hidden;
+        transition: box-shadow 0.3s;
+    }
+
+        .edit-card:hover {
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
+        }
+
+    .card-header {
+        background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+        padding: 16px 20px;
+        border-bottom: 1px solid #e5e7eb;
+    }
+
+        .card-header h3 {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin: 0;
+            font-size: 1.1rem;
+            font-weight: 600;
+            color: #1f2937;
+        }
+
+    .header-icon {
+        font-size: 1.25rem;
+    }
+
+    .card-body {
+        padding: 24px;
+    }
+
+    /* Product Display */
+    .product-display {
+        display: flex;
+        flex-direction: column;
+        gap: 20px;
+    }
+
+    .product-image-wrapper {
+        position: relative;
+        width: 100%;
+        aspect-ratio: 16 / 9;
+        border-radius: 8px;
+        overflow: hidden;
+        background: #f3f4f6;
+    }
+
+    .product-image {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        transition: transform 0.3s;
+    }
+
+    .product-image-wrapper:hover .product-image {
+        transform: scale(1.05);
+    }
+
+    .product-image-placeholder {
+        width: 100%;
+        height: 100%;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+        color: #9ca3af;
+    }
+
+    .placeholder-icon {
+        font-size: 3rem;
+    }
+
+    .placeholder-text {
+        font-size: 0.9rem;
+        font-weight: 500;
+    }
+
+    .locked-overlay {
+        position: absolute;
+        top: 12px;
+        right: 12px;
+        background: rgba(0, 0, 0, 0.7);
+        backdrop-filter: blur(8px);
+        padding: 8px 12px;
+        border-radius: 8px;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        color: white;
+        font-size: 0.85rem;
+        font-weight: 600;
+    }
+
+    .locked-icon {
+        font-size: 1rem;
+    }
+
+    .product-info {
+        flex: 1;
+    }
+
+    .product-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-start;
+        gap: 12px;
+        margin-bottom: 12px;
+        flex-wrap: wrap;
+    }
+
+    .product-name {
+        margin: 0;
+        font-size: 1.4rem;
+        font-weight: 700;
+        color: #111827;
+        flex: 1;
+        min-width: 200px;
+    }
+
+    .locked-badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 6px 12px;
+        background: #fef3c7;
+        color: #92400e;
+        border-radius: 6px;
+        font-size: 0.8rem;
+        font-weight: 600;
+        border: 1px solid #fde68a;
+    }
+
+    .product-description {
+        color: #6b7280;
+        line-height: 1.6;
+        margin: 0 0 16px 0;
+    }
+
+    .product-meta {
+        display: flex;
+        gap: 24px;
+        flex-wrap: wrap;
+        margin-bottom: 16px;
+    }
+
+    .meta-item {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+    }
+
+    .meta-icon {
+        font-size: 1.5rem;
+    }
+
+    .meta-content {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+    }
+
+    .meta-value {
+        font-size: 1.25rem;
+        font-weight: 700;
+        color: #111827;
+    }
+
+    .meta-label {
+        font-size: 0.85rem;
+        color: #6b7280;
+    }
+
+    .stock-badge {
+        padding: 2px 8px;
+        border-radius: 4px;
+        background: #d1fae5;
+        color: #065f46;
+    }
+
+        .stock-badge.stock-low {
+            background: #fee2e2;
+            color: #991b1b;
+        }
+
+    .info-banner {
+        display: flex;
+        align-items: flex-start;
+        gap: 10px;
+        padding: 12px;
+        background: #eff6ff;
+        border-left: 3px solid #3b82f6;
+        border-radius: 6px;
+        font-size: 0.9rem;
+        color: #1e40af;
+        line-height: 1.5;
+    }
+
+    .banner-icon {
+        font-size: 1.1rem;
+        flex-shrink: 0;
+    }
+
+    /* Quantity Input - Simplified */
+    .form-group {
+        margin-bottom: 0;
+    }
+
+    .form-label {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        margin-bottom: 12px;
+        font-weight: 600;
+        color: #374151;
+        flex-wrap: wrap;
+    }
+
+    .label-text {
+        font-size: 1rem;
+    }
+
+    .label-hint {
+        font-size: 0.85rem;
+        color: #6b7280;
+        font-weight: 500;
+    }
+
+    .quantity-input-wrapper {
+        width: 100%;
+    }
+
+    .quantity-input-simple {
+        width: 100%;
+        padding: 16px 20px;
+        font-size: 1.5rem;
+        font-weight: 700;
+        text-align: center;
+        border: 2px solid #e5e7eb;
+        border-radius: 8px;
+        color: #111827;
+        transition: all 0.3s ease;
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+    }
+
+        .quantity-input-simple:focus {
+            outline: none;
+            border-color: #3b82f6;
+            background: #f0f9ff;
+            box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+        }
+
+        .quantity-input-simple:hover {
+            border-color: #cbd5e1;
+        }
+
+    .validation-message {
+        display: block;
+        margin-top: 8px;
+        color: #dc2626;
+        font-size: 0.85rem;
+        font-weight: 500;
+    }
+
+    .stock-warning {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-top: 12px;
+        padding: 10px;
+        background: #fef2f2;
+        border-left: 3px solid #ef4444;
+        border-radius: 6px;
+        color: #991b1b;
+        font-size: 0.9rem;
+        font-weight: 500;
+    }
+
+    .warning-icon {
+        font-size: 1.1rem;
+    }
+
+    /* Price Summary */
+    .price-summary {
+        display: flex;
+        flex-direction: column;
+        gap: 16px;
+    }
+
+    .price-row {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        font-size: 1rem;
+    }
+
+    .price-label {
+        color: #6b7280;
+        font-weight: 500;
+    }
+
+    .price-value {
+        color: #111827;
+        font-weight: 600;
+        font-size: 1.1rem;
+    }
+
+    .quantity-display {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+    }
+
+    .quantity-unit {
+        font-size: 0.85rem;
+        color: #6b7280;
+        font-weight: 500;
+    }
+
+    .price-divider {
+        height: 1px;
+        background: linear-gradient(to right, transparent, #e5e7eb, transparent);
+    }
+
+    .total-row {
+        padding: 16px;
+        background: linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%);
+        border-radius: 8px;
+        margin: 4px 0;
+    }
+
+        .total-row .price-label {
+            font-size: 1.1rem;
+            font-weight: 700;
+            color: #111827;
+        }
+
+    .total-price {
+        font-size: 1.75rem !important;
+        font-weight: 800 !important;
+        color: #2563eb !important;
+        transition: transform 0.2s ease;
+    }
+
+    .savings-info {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 10px;
+        background: #f0fdf4;
+        border-radius: 6px;
+        font-size: 0.9rem;
+        color: #166534;
+    }
+
+    .savings-icon {
+        font-size: 1.1rem;
+    }
+
+    /* Buttons */
+    .button-group {
+        display: flex;
+        gap: 12px;
+        flex-wrap: wrap;
+    }
+
+    .btn-primary,
+    .btn-secondary {
+        flex: 1;
+        min-width: 140px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+        padding: 14px 24px;
+        border-radius: 8px;
+        font-size: 1rem;
+        font-weight: 600;
+        text-decoration: none;
+        border: none;
+        cursor: pointer;
+        transition: all 0.2s;
+    }
+
+    .btn-primary {
+        background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+        color: white;
+        box-shadow: 0 4px 6px rgba(59, 130, 246, 0.3);
+    }
+
+        .btn-primary:hover {
+            background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
+            box-shadow: 0 6px 12px rgba(59, 130, 246, 0.4);
+            transform: translateY(-2px);
+        }
+
+        .btn-primary:active {
+            transform: translateY(0);
+        }
+
+    .btn-secondary {
+        background: white;
+        color: #6b7280;
+        border: 2px solid #e5e7eb;
+    }
+
+        .btn-secondary:hover {
+            background: #f9fafb;
+            border-color: #d1d5db;
+            color: #374151;
+        }
+
+    .btn-icon {
+        font-size: 1.1rem;
+    }
+
+    .help-text {
+        display: flex;
+        align-items: flex-start;
+        gap: 10px;
+        padding: 12px;
+        background: #fefce8;
+        border-left: 3px solid #facc15;
+        border-radius: 6px;
+        font-size: 0.9rem;
+        color: #713f12;
+        line-height: 1.5;
+        margin-top: 16px;
+    }
+
+    .help-icon {
+        font-size: 1.1rem;
+        flex-shrink: 0;
+    }
+
+    /* Responsive */
+    .page-header {
+        padding: 16px;
+    }
+
+    .page-title {
+        font-size: 1.5rem;
+    }
+
+    .header-content {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+
+    .header-right {
+        align-items: flex-start;
+        width: 100%;
+    }
+
+    .card-body {
+        padding: 16px;
+    }
+
+    .product-name {
+        font-size: 1.2rem;
+    }
+
+    .meta-value {
+        font-size: 1.1rem;
+    }
+
+    .total-price {
+        font-size: 1.5rem !important;
+    }
+
+    }
+
+    /* Animation styles */
+    .btn-changes-pending {
+        animation: pulse 2s infinite;
+    }
+
+</style>
+
+@section Scripts {
+    @{
+        await Html.RenderPartialAsync("_ValidationScriptsPartial");
+    }
+
+    <script>
+        const unitPrice = @(currentProduct?.Price ?? 0);
+        const maxStock = @(currentProduct?.StockQuantity ?? 1);
+        const originalQuantity = @Model.Quantity;
+        const originalTotalPrice = @Model.TotalPrice;
+
+        const quantityInput = document.getElementById('quantityInput');
+        const displayQuantity = document.getElementById('displayQuantity');
+        const displayTotalPrice = document.getElementById('displayTotalPrice');
+        const hiddenTotalPrice = document.getElementById('hiddenTotalPrice');
+        const savingsInfo = document.getElementById('savingsInfo');
+        const savingsAmount = document.getElementById('savingsAmount');
+        const saveButton = document.getElementById('saveButton');
+
+        function updatePrice() {
+            let quantity = parseInt(quantityInput.value);
+
+            // Ensure quantity is valid
+            if (isNaN(quantity) || quantity < 1) {
+                quantity = 1;
+                quantityInput.value = 1;
+            }
+            if (quantity > maxStock) {
+                quantity = maxStock;
+                quantityInput.value = maxStock;
+            }
+
+            const total = quantity * unitPrice;
+
+            // Update display elements with animation
+            displayQuantity.textContent = quantity;
+            displayTotalPrice.style.transform = 'scale(1.1)';
+            displayTotalPrice.textContent = total.toLocaleString('en-US', {
+                style: 'currency',
+                currency: 'USD'
+            });
+
+            setTimeout(() => {
+                displayTotalPrice.style.transform = 'scale(1)';
+            }, 200);
+
+            // Format to 2 decimal places for form submission
+            hiddenTotalPrice.value = total.toFixed(2);
+
+            // Show savings/difference indicator
+            const priceDifference = total - originalTotalPrice;
+            if (Math.abs(priceDifference) > 0.01) {
+                savingsInfo.style.display = 'flex';
+                const savingsText = savingsInfo.querySelector('.savings-text');
+
+                if (priceDifference > 0) {
+                    savingsAmount.textContent = priceDifference.toLocaleString('en-US', {
+                        style: 'currency',
+                        currency: 'USD'
+                    });
+                    savingsText.textContent = savingsAmount.textContent + ' more than original order';
+                } else {
+                    savingsAmount.textContent = Math.abs(priceDifference).toLocaleString('en-US', {
+                        style: 'currency',
+                        currency: 'USD'
+                    });
+                    savingsText.textContent = savingsAmount.textContent + ' less than original order';
+                }
+
+                // Update save button to show changes pending
+                if (quantity !== originalQuantity) {
+                    saveButton.classList.add('btn-changes-pending');
+                } else {
+                    saveButton.classList.remove('btn-changes-pending');
+                }
+            } else {
+                savingsInfo.style.display = 'none';
+                saveButton.classList.remove('btn-changes-pending');
+            }
+
+            console.log('Price Updated:', {
+                quantity: quantity,
+                unitPrice: unitPrice,
+                total: total,
+                hiddenValue: hiddenTotalPrice.value
+            });
+        }
+
+        // Event listeners for quantity input
+        quantityInput.addEventListener('input', function() {
+            updatePrice();
+        });
+
+        quantityInput.addEventListener('change', function() {
+            updatePrice();
+        });
+
+        quantityInput.addEventListener('blur', function() {
+            updatePrice();
+        });
+
+        // Prevent decimal input and other invalid characters
+        quantityInput.addEventListener('keypress', function(e) {
+            const char = e.key;
+            // Only allow numbers
+            if (!/[0-9]/.test(char)) {
+                e.preventDefault();
+            }
+        });
+
+        // Handle paste events to prevent invalid input
+        quantityInput.addEventListener('paste', function(e) {
+            e.preventDefault();
+            const pasteData = e.clipboardData.getData('text');
+            const numericValue = parseInt(pasteData);
+            if (!isNaN(numericValue) && numericValue > 0) {
+                quantityInput.value = Math.min(numericValue, maxStock);
+                updatePrice();
+            }
+        });
+
+        // Initialize price on page load
+        updatePrice();
+
+        // Confirm before leaving if changes made
+        let hasUnsavedChanges = false;
+
+        window.addEventListener('beforeunload', function(e) {
+            const currentQuantity = parseInt(quantityInput.value);
+            const currentTotalPrice = parseFloat(hiddenTotalPrice.value);
+
+            if (currentQuantity !== originalQuantity || Math.abs(currentTotalPrice - originalTotalPrice) > 0.01) {
+                hasUnsavedChanges = true;
+                e.preventDefault();
+                e.returnValue = 'You have unsaved changes. Are you sure you want to leave?';
+                return e.returnValue;
+            }
+        });
+
+        // Track changes for visual feedback
+        quantityInput.addEventListener('input', function() {
+            const currentQuantity = parseInt(this.value);
+            if (currentQuantity !== originalQuantity) {
+                hasUnsavedChanges = true;
+            } else {
+                hasUnsavedChanges = false;
+            }
+        });
+
+        // Form submission handling
+        const form = document.getElementById('editOrderForm');
+        form.addEventListener('submit', function(e) {
+            // Final update before submit
+            updatePrice();
+
+            // Validate one more time before submit
+            const quantity = parseInt(quantityInput.value);
+            if (isNaN(quantity) || quantity < 1) {
+                e.preventDefault();
+                alert('⚠️ Please enter a valid quantity (minimum 1).');
+                quantityInput.focus();
+                return false;
+            }
+            if (quantity > maxStock) {
+                e.preventDefault();
+                alert(`⚠️ Only ${maxStock} items available in stock.`);
+                quantityInput.value = maxStock;
+                updatePrice();
+                quantityInput.focus();
+                return false;
+            }
+
+            // Show loading state on save button
+            saveButton.disabled = true;
+            saveButton.innerHTML = '<span class="btn-icon">⏳</span><span class="btn-text">Saving...</span>';
+            saveButton.style.opacity = '0.7';
+
+            console.log('Form submitting with:', {
+                quantity: quantity,
+                totalPrice: hiddenTotalPrice.value
+            });
+
+            // Remove the beforeunload listener
+            window.onbeforeunload = null;
+            hasUnsavedChanges = false;
+        });
+    </script>
+}

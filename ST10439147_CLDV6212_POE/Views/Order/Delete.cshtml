@@ -186,8 +186,8 @@
 
                     <!-- Action Buttons -->
                     <div class="d-flex justify-content-between align-items-center">
-                        <a asp-action="Index" class="btn btn-secondary">
-                            <i class="fas fa-arrow-left me-1"></i>Back to List
+                        <a asp-action="MyOrders" class="btn btn-secondary">
+                            <i class="fas fa-arrow-left me-1"></i>Back to My Orders
                         </a>
 
                         <div>
@@ -221,7 +221,7 @@
                         @if (Model.Status == "Processing" || Model.Status == "Shipped")
                         {
                             <br>
-                        
+
                             <strong class="text-warning">Warning: This order is currently @Model.Status.ToLower()!</strong>
                         }
                     </p>
@@ -345,7 +345,7 @@
         padding: 0.5rem 0.75rem;
     }
 
-    
+
     .d-flex.justify-content-between > div {
         display: flex;
         gap: 0.5rem;

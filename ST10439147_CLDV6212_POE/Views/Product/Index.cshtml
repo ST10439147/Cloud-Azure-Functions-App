@@ -84,7 +84,7 @@
                             <div class="d-grid gap-2">
                                 @if (User.IsInRole("Customer") && product.StockQuantity > 0)
                                 {
-                                    <form asp-controller="Cart" asp-action="AddToCart" method="post" class="add-to-cart-form">
+                                    <!--<form asp-controller="Cart" asp-action="AddToCart" method="post" class="add-to-cart-form">
                                         @Html.AntiForgeryToken()
                                         <input type="hidden" name="productId" value="@product.RowKey" />
 
@@ -104,7 +104,7 @@
                                         <button type="submit" class="btn btn-primary w-100">
                                             <i class="bi bi-cart-plus"></i> Add to Cart
                                         </button>
-                                    </form>
+                                    </form>-->
                                 }
                                 else if (User.IsInRole("Customer"))
                                 {

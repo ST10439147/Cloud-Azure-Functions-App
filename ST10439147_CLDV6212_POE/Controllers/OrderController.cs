@@ -98,10 +98,22 @@ namespace ST10439147_CLDV6212_POE.Controllers
                 var allOrders = await _tableService.GetAllOrdersAsync();
                 var customerOrders = allOrders.Where(o => o.CustomerId == customerIdClaim).ToList();
 
-                // Load product details for each order
+                // Load product details for each order - ensure no duplicates
                 var productsDict = new Dictionary<string, Product>();
+
                 foreach (var order in customerOrders)
                 {
+                    // Skip if ProductId is null or empty
+                    if (string.IsNullOrEmpty(order.ProductId))
+                    {
+                        _logger.LogWarning("Order {OrderId} has null or empty ProductId", order.RowKey);
+                        continue;
+                    }
+
+                    // Skip if we already loaded this product
+                    if (productsDict.ContainsKey(order.ProductId))
+                        continue;
+
                     try
                     {
                         var product = await _tableService.GetProductByIdAsync("Product", order.ProductId);
@@ -109,20 +121,31 @@ namespace ST10439147_CLDV6212_POE.Controllers
                         {
                             productsDict[order.ProductId] = product;
                         }
+                        else
+                        {
+                            _logger.LogWarning("Product {ProductId} not found for order {OrderId}",
+                                order.ProductId, order.RowKey);
+                        }
                     }
                     catch (Exception ex)
                     {
-                        _logger.LogWarning(ex, "Could not load product {ProductId}", order.ProductId);
+                        _logger.LogWarning(ex, "Could not load product {ProductId} for order {OrderId}",
+                            order.ProductId, order.RowKey);
                     }
                 }
 
+                // Ensure ViewBag.Products is always initialized, never null
                 ViewBag.Products = productsDict;
+
                 return View("MyOrders", customerOrders);
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error loading orders for customer {CustomerId}", customerIdClaim);
                 TempData["Error"] = "Unable to load your orders.";
+
+                // Still initialize ViewBag.Products even on error
+                ViewBag.Products = new Dictionary<string, Product>();
                 return View("MyOrders", new List<Order>());
             }
         }
@@ -512,6 +535,8 @@ namespace ST10439147_CLDV6212_POE.Controllers
                         {
                             oldProduct.StockQuantity += existingOrder.Quantity;
                             await _tableService.UpdateProductAsync(oldProduct);
+                            _logger.LogInformation("Restored stock for product {ProductId}: +{Quantity}",
+                                existingOrder.ProductId, existingOrder.Quantity);
                         }
 
                         // Reduce new stock
@@ -526,12 +551,40 @@ namespace ST10439147_CLDV6212_POE.Controllers
                             }
                             newProduct.StockQuantity -= order.Quantity;
                             await _tableService.UpdateProductAsync(newProduct);
+                            _logger.LogInformation("Reduced stock for product {ProductId}: -{Quantity}",
+                                order.ProductId, order.Quantity);
+
+                            // Recalculate total price based on new product and quantity
+                            order.TotalPrice = newProduct.Price * order.Quantity;
+                            _logger.LogInformation("Recalculated total price: {TotalPrice} (Unit Price: {UnitPrice} x Quantity: {Quantity})",
+                                order.TotalPrice, newProduct.Price, order.Quantity);
+                        }
+                    }
+                    else
+                    {
+                        // Even if product didn't change, verify the price is correct
+                        var product = await _tableService.GetProductByIdAsync("Product", order.ProductId);
+                        if (product != null)
+                        {
+                            var calculatedPrice = product.Price * order.Quantity;
+
+                            // Only log if there's a significant difference (more than 1 cent due to rounding)
+                            if (Math.Abs(order.TotalPrice - calculatedPrice) > 0.01)
+                            {
+                                _logger.LogInformation("Price mismatch detected. Submitted: {SubmittedPrice}, Calculated: {CalculatedPrice}. Using calculated price.",
+                                    order.TotalPrice, calculatedPrice);
+                                order.TotalPrice = calculatedPrice;
+                            }
                         }
                     }
 
+                    // Update order fields
                     existingOrder.ProductId = order.ProductId;
                     existingOrder.Quantity = order.Quantity;
                     existingOrder.TotalPrice = order.TotalPrice;
+
+                    _logger.LogInformation("Updating order {OrderId} - ProductId: {ProductId}, Quantity: {Quantity}, TotalPrice: {TotalPrice}",
+                        existingOrder.RowKey, existingOrder.ProductId, existingOrder.Quantity, existingOrder.TotalPrice);
 
                     await _tableService.UpdateOrderAsync(existingOrder);
                     await SendOrderUpdateMessages(existingOrder, "CustomerUpdateOrder");
